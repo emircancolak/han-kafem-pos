@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a1208" />
+  <meta name="description" content="Han Kafem - İç Sipariş ve POS Sistemi" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- YENİ ÖZELLİK: Gelişmiş Gün Sonu Raporu — jsPDF CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <title>Han Kafem POS</title>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════
+       YENİ ÖZELLİK: Loading Animasyonu
+  ═══════════════════════════════════════ -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loading-card">
+      <span class="loading-icon">☕</span>
+      <div class="spinner"></div>
+      <p class="loading-text">Menü yükleniyor…</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       GİRİŞ EKRANI
+  ═══════════════════════════════════════ -->
+  <div id="screen-login" class="screen">
+    <div class="login-wrapper">
+      <div class="login-card">
+        <div class="login-brand">
+          <span class="brand-icon">☕</span>
+          <h1 class="brand-name">Han Kafem</h1>
+          <p class="brand-sub">POS Sistemi</p>
+        </div>
+        <div class="login-form">
+          <!-- ── GİRİŞ FORMU ── -->
+          <div id="login-section">
+            <div class="field">
+              <label for="input-username">Kullanıcı Adı</label>
+              <input id="input-username" type="text" placeholder="kullanici_adi" autocomplete="username" />
+            </div>
+            <div class="field">
+              <label for="input-password">Şifre</label>
+              <input id="input-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+            </div>
+            <p id="login-error" class="login-error" role="alert"></p>
+            <div class="remember-me-row">
+              <label class="remember-me-label">
+                <input type="checkbox" id="chk-remember-me" checked />
+                   Beni Hatırla
+               </label>
+            </div>
+            <button id="btn-login" class="btn btn--primary btn--full">Giriş Yap</button>
+          </div>
+
+          <!-- ── KAYIT FORMU ── -->
+          <div id="register-section" class="hidden">
+            <div class="field">
+              <label for="input-reg-fullname">Ad Soyad</label>
+              <input id="input-reg-fullname" type="text" placeholder="Ahmet Yılmaz" autocomplete="name" />
+            </div>
+            <div class="field">
+              <label for="input-reg-username">Kullanıcı Adı</label>
+              <input id="input-reg-username" type="text" placeholder="ahmet" autocomplete="username" />
+            </div>
+            <div class="field">
+              <label for="input-reg-password">Şifre</label>
+              <input id="input-reg-password" type="password" placeholder="••••••••" autocomplete="new-password" />
+            </div>
+            <p id="register-error" class="login-error" role="alert"></p>
+            <button id="btn-register" class="btn btn--primary btn--full">Kayıt Ol</button>
+          </div>
+
+          <!-- ── GEÇİŞ BUTONLARI ── -->
+          <p class="auth-toggle">
+            Hesabın yok mu?
+            <button id="btn-go-register" class="btn-link">Kayıt Ol</button>
+          </p>
+          <p class="auth-toggle hidden" id="toggle-back-login">
+            Zaten hesabın var mı?
+            <button id="btn-go-login" class="btn-link">Giriş Yap</button>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       DASHBOARD — MASA LİSTESİ
+  ═══════════════════════════════════════ -->
+  <div id="screen-dashboard" class="screen hidden">
+
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-logo">☕</span>
+        <span class="header-title">Han Kafem</span>
+      </div>
+      <div class="header-right">
+        <!-- YENİ ÖZELLİK: Gelişmiş Gün Sonu Raporu -->
+        <button id="btn-report" class="btn btn--accent btn--sm" style="display:none">📊 Rapor</button>
+        <!-- YENİ ÖZELLİK: Kullanıcı Yetki Yönetimi -->
+        <button id="btn-staff-management" class="btn btn--accent btn--sm" style="display:none">👥 Personel</button>
+        <!-- YENİ ÖZELLİK: Mutfak Bildirim Sistemi — header bildirim butonu -->
+        <div class="notif-wrapper">
+          <button id="btn-notif-toggle" class="btn btn--ghost btn--sm notif-toggle-btn" title="Mutfak Bildirimleri">
+            🔔 <span id="notif-badge" class="notif-badge hidden">0</span>
+          </button>
+          <div id="notif-dropdown" class="notif-dropdown hidden">
+            <div class="notif-dropdown__header">
+              <span>Mutfak Bildirimleri</span>
+            </div>
+            <div id="notif-panel-list" class="notif-panel-list">
+              <p class="notif-empty">Bekleyen bildirim yok.</p>
+            </div>
+          </div>
+        </div>
+        <span id="header-user" class="header-user"></span>
+        <button id="btn-settings" class="btn btn--ghost btn--sm">⚙️</button>
+        <button id="btn-logout" class="btn btn--ghost btn--sm">Çıkış</button>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <div id="admin-controls" class="admin-bar" style="display:none">
+        <input id="input-table-name" type="text" placeholder="Yeni masa adı (Örn: Masa 5, Bahçe 3)" />
+        <button id="btn-add-table" class="btn btn--accent">+ Masa Ekle</button>
+      </div>
+
+      <div class="legend">
+        <span class="legend-item"><span class="dot dot--empty"></span> Boş</span>
+        <span class="legend-item"><span class="dot dot--occupied"></span> Dolu</span>
+      </div>
+
+      <div id="table-grid" class="table-grid">
+        <div class="loading-spinner">Masalar yükleniyor…</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       MASA DETAY EKRANI
+  ═══════════════════════════════════════ -->
+  <div id="screen-table" class="screen hidden">
+
+    <header class="app-header">
+      <div class="header-left">
+        <button id="btn-back" class="btn btn--ghost btn--sm">← Geri</button>
+        <span id="table-screen-title" class="header-title"></span>
+      </div>
+      <div class="header-right">
+        <!-- YENİ ÖZELLİK: Masa Taşıma -->
+        <button id="btn-move-table" class="btn btn--accent btn--sm">↔ Taşı</button>
+        <!-- YENİ ÖZELLİK: Mutfak Bildirim Sistemi -->
+        <button id="btn-send-kitchen" class="btn btn--accent btn--sm">🍳 Mutfağa Gönder</button>
+        <!-- Masaüstünde header'da gösterilir; mobilde order-panel altına taşınır (CSS ile) -->
+        <button id="btn-close-table" class="btn btn--danger">Hesabı Al / Masayı Kapat</button>
+      </div>
+    </header>
+
+    <div class="table-layout">
+
+      <!-- SOL: Menü -->
+      <aside class="menu-panel">
+        <h2 class="panel-title">Menü</h2>
+        <div id="menu-list" class="menu-list">
+          <p class="loading-text">Menü yükleniyor…</p>
+        </div>
+      </aside>
+
+      <!-- SAĞ: Sipariş -->
+      <section class="order-panel">
+        <h2 class="panel-title">Sipariş</h2>
+        <div id="order-list" class="order-list"></div>
+
+        <!-- YENİ ÖZELLİK: Hesabı Bölme — seçili toplam ve ödeme butonu -->
+        <div id="selected-total" class="selected-total hidden"></div>
+        <button id="btn-pay-selected" class="btn btn--accent btn--sm hidden" style="margin: .3rem .25rem .5rem">
+          💳 Seçilenleri Öde
+        </button>
+
+        <div class="order-total-bar">
+          <span>Toplam</span>
+          <span id="order-total" class="order-total-amount">₺0,00</span>
+        </div>
+
+        <!-- Mobilde (≤540px) buraya taşınır, masaüstünde gizli -->
+        <div id="close-table-mobile-slot" class="close-table-mobile-slot"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       YENİ ÖZELLİK: Masa Taşıma Modalı
+  ═══════════════════════════════════════ -->
+  <div id="modal-move-table" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Masa Taşı</h3>
+        <button id="modal-move-table-close" class="modal-close-btn">✕</button>
+      </div>
+      <p class="modal-subtitle">
+        <strong id="move-table-from-name"></strong> masasını hangi masaya taşımak istiyorsunuz?
+      </p>
+      <div id="move-table-list" class="move-table-grid"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       YENİ ÖZELLİK: Gelişmiş Gün Sonu Raporu Modalı
+  ═══════════════════════════════════════ -->
+  <div id="modal-report" class="modal-overlay hidden">
+    <div class="modal-card modal-card--wide">
+      <div class="modal-header">
+        <h3 class="modal-title">📊 Gün Sonu Raporu</h3>
+        <div class="modal-header-actions">
+          <button id="btn-report-pdf" class="btn btn--primary btn--sm">⬇ PDF İndir</button>
+          <button id="modal-report-close" class="modal-close-btn">✕</button>
+        </div>
+      </div>
+
+      <div class="report-meta">
+        <div class="field">
+          <label for="report-date-input">Tarih</label>
+          <input type="date" id="report-date-input" />
+        </div>
+        <div class="report-summary-chips">
+          <span class="report-chip">Toplam: <strong id="report-total">—</strong></span>
+          <span class="report-chip"><strong id="report-session-count">—</strong></span>
+        </div>
+      </div>
+
+      <div class="report-table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Ürün</th>
+              <th>Kategori</th>
+              <th>Adet</th>
+              <th>Ciro</th>
+            </tr>
+          </thead>
+          <tbody id="report-body">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-3)">Tarih seçin.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       YENİ ÖZELLİK: Personel Yönetimi Modalı
+  ═══════════════════════════════════════ -->
+  <div id="modal-staff" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">👥 Personel Yönetimi</h3>
+        <button id="modal-staff-close" class="modal-close-btn">✕</button>
+      </div>
+      <p class="modal-subtitle">Kullanıcıların yetkilerini değiştirin.</p>
+      <div id="staff-list" class="staff-list"></div>
+    </div>
+  </div>
+  
+  <!-- ═══════════════════════════════════════
+     YENİ ÖZELLİK: Ayarlar Modalı
+═══════════════════════════════════════ -->
+<div id="modal-settings" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 class="modal-title">⚙️ Ayarlar</h3>
+      <button id="modal-settings-close" class="modal-close-btn">✕</button>
+    </div>
+
+    <!-- Şifre Değiştirme -->
+    <section class="settings-section">
+      <h4 class="settings-section__title">🔑 Şifre Değiştir</h4>
+      <div class="field">
+        <label for="input-new-password">Yeni Şifre</label>
+        <input id="input-new-password" type="password" placeholder="En az 6 karakter" />
+      </div>
+      <div class="field">
+        <label for="input-new-password-confirm">Yeni Şifre (Tekrar)</label>
+        <input id="input-new-password-confirm" type="password" placeholder="••••••••" />
+      </div>
+      <p id="settings-pw-error" class="login-error"></p>
+      <button id="btn-change-password" class="btn btn--primary btn--sm" style="margin-top:.5rem">
+        Şifreyi Güncelle
+      </button>
+    </section>
+
+    <!-- Tema Seçimi -->
+    <section class="settings-section">
+      <h4 class="settings-section__title">🎨 Tema</h4>
+      <div class="settings-theme-row">
+        <span class="settings-theme-label" id="theme-label">Koyu (Espresso)</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-theme" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </section>
+  </div>
+</div>
+  <!-- ═══════════════════════════════════════
+       TOAST BİLDİRİM ALANI
+  ═══════════════════════════════════════ -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js")
+          .then(() => console.log("✅ SW registered"))
+          .catch(err => console.warn("SW error:", err));
+      });
+    }
+  </script>
+</body>
+</html>

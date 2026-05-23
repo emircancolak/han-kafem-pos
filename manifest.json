@@ -1,0 +1,14 @@
+{
+  "name": "Han Kafem POS",
+  "short_name": "Han Kafem",
+  "description": "Han Kafem İç Sipariş ve POS Sistemi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0c07",
+  "theme_color": "#1a1208",
+  "orientation": "any",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  
+
+  "users": {
+    "UID_admin_1": {
+      "email": "admin@hankafem.com",
+      "displayName": "Admin Kullanıcı",
+      "role": "admin",
+      "createdAt": 1700000000000
+    },
+    "UID_kasa_1": {
+      "email": "kasa@hankafem.com",
+      "displayName": "Kasa 1",
+      "role": "cashier",
+      "createdAt": 1700000000000
+    },
+    "UID_garson_1": {
+      "email": "garson1@hankafem.com",
+      "displayName": "Garson Ali",
+      "role": "waiter",
+      "createdAt": 1700000000000
+    }
+  },
+
+  "tables": {
+    "table_masa1": {
+      "name": "Masa 1",
+      "status": "empty",
+      "createdAt": 1700000000000,
+      "createdBy": "UID_admin_1"
+    },
+    "table_masa2": {
+      "name": "Masa 2",
+      "status": "occupied",
+      "totalPrice": 245.50,
+      "openedAt": 1700001000000,
+      "openedBy": "UID_garson_1",
+      "createdAt": 1700000000000,
+      "createdBy": "UID_admin_1"
+    },
+    "table_bahce1": {
+      "name": "Bahçe 1",
+      "status": "empty",
+      "createdAt": 1700000000000,
+      "createdBy": "UID_admin_1"
+    }
+  },
+
+  "orders": {
+    "table_masa2": {
+      "order_abc123": {
+        "productId": "espresso",
+        "productName": "Espresso",
+        "category": "Kahveler",
+        "quantity": 2,
+        "unitPrice": 45.00,
+        "totalPrice": 90.00,
+        "addedAt": 1700001500000,
+        "addedBy": "UID_garson_1",
+        "addedByName": "Garson Ali",
+        "note": ""
+      },
+      "order_def456": {
+        "productId": "cheesecake",
+        "productName": "Cheesecake",
+        "category": "Tatlılar",
+        "quantity": 1,
+        "unitPrice": 85.00,
+        "totalPrice": 85.00,
+        "addedAt": 1700001800000,
+        "addedBy": "UID_garson_1",
+        "addedByName": "Garson Ali",
+        "note": "Az şekerli"
+      }
+    }
+  },
+
+  "history": {
+    "2024-11-14": {
+      "session_xyz789": {
+        "tableName": "Masa 2",
+        "tableId": "table_masa2",
+        "openedAt": 1700001000000,
+        "closedAt": 1700010000000,
+        "closedBy": "UID_kasa_1",
+        "closedByName": "Kasa 1",
+        "totalAmount": 245.50,
+        "itemCount": 5,
+        "items": {
+          "order_abc123": {
+            "productName": "Espresso",
+            "category": "Kahveler",
+            "quantity": 2,
+            "unitPrice": 45.00,
+            "totalPrice": 90.00
+          },
+          "order_def456": {
+            "productName": "Cheesecake",
+            "category": "Tatlılar",
+            "quantity": 1,
+            "unitPrice": 85.00,
+            "totalPrice": 85.00
+          }
+        }
+      }
+    }
+  },
+
+  "settings": {
+    "cafeName": "Han Kafem",
+    "currency": "TL",
+    "sheetsUrl": "https://opensheet.elk.sh/YOUR_SHEET_ID/Menü",
+    "lastMenuSync": 1700000000000
+  }
+}

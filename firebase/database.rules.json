@@ -1,0 +1,47 @@
+{
+  "rules": {
+   "users": {
+    
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      
+      "$uid": {
+      ".read": "auth != null && auth.uid === $uid",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (auth.uid === $uid && !data.exists()))",
+      ".validate": "newData.hasChildren(['email', 'displayName', 'role']) && newData.child('role').val().matches(/^(admin|cashier|waiter|pending)$/)"
+}
+    },
+
+    "tables": {
+      ".read": "auth != null",
+      "$tableId": {
+        ".write": "auth != null && root.child('users').child(auth.uid).child('role').val().matches(/^(admin|cashier|waiter)$/)",
+        ".validate": "newData.hasChildren(['name', 'status']) && newData.child('status').val().matches(/^(empty|occupied)$/)"
+      }
+    },
+
+    "orders": {
+      ".read": "auth != null",
+      "$tableId": {
+        ".write": "auth != null",
+        "$orderId": {
+          ".validate": "newData.hasChildren(['productName', 'quantity', 'unitPrice', 'totalPrice', 'addedAt', 'addedBy'])"
+        }
+      }
+    },
+
+    "history": {
+      ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'cashier')",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'cashier')"
+    },
+
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "settings": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    }
+  }
+}

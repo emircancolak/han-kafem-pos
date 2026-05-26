@@ -1,6 +1,7 @@
 // ============================================================
 // HAN KAFEM - CORE LOGIC (js/core.js)
 // Firebase Realtime DB + Google Sheets entegrasyonu
+// v3.0 — 8 yeni özellik entegre edildi
 // ============================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -11,10 +12,9 @@ import {
   signOut,
   onAuthStateChanged,
   updatePassword,
-  browserLocalPersistence,       // ← YENİ
-  browserSessionPersistence,     // ← YENİ
-  setPersistence                 // ← YENİ
-
+  browserLocalPersistence,
+  browserSessionPersistence,
+  setPersistence
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
   getDatabase,
@@ -52,19 +52,18 @@ setPersistence(auth, browserLocalPersistence).catch(() => {});
 // 2. UYGULAMA DURUMU (STATE)
 // ─────────────────────────────────────────────
 export const AppState = {
-  currentUser: null,
-  menuItems:   [],
-  tables:      {},
-  orders:      {},
-  listeners:   [],
+  currentUser:  null,
+  menuItems:    [],
+  tables:       {},
+  orders:       {},
+  listeners:    [],
   starredItems: {},
+  inventory:    {},   // YENİ: Stok verileri
 };
 
 // ─────────────────────────────────────────────
 // 3. AUTHENTICATION
 // ─────────────────────────────────────────────
-
-// Kullanıcı adını Firebase'in beklediği e-posta formatına çevirir.
 const DUMMY_DOMAIN = "@hankafem.com";
 function toEmail(username) {
   const u = username.trim().toLowerCase();
@@ -84,13 +83,6 @@ export async function login(username, password, rememberMe = true) {
   return AppState.currentUser;
 }
 
-/**
- * Yeni kullanıcı kaydı.
- * @param {string} fullName   - Ad Soyad
- * @param {string} username   - Kullanıcı adı (örn: "ahmet")
- * @param {string} password   - Şifre (min 6 karakter)
- * Varsayılan rol: "waiter"
- */
 export async function register(fullName, username, password) {
   if (!fullName.trim()) throw new Error("Ad Soyad boş olamaz.");
   if (!username.trim()) throw new Error("Kullanıcı adı boş olamaz.");
@@ -101,10 +93,10 @@ export async function register(fullName, username, password) {
   const uid   = cred.user.uid;
 
   const userData = {
-  email,
-  displayName: fullName.trim(),
-  role: "pending"
-};
+    email,
+    displayName: fullName.trim(),
+    role: "pending"
+  };
 
   await set(ref(db, `users/${uid}`), userData);
   AppState.currentUser = { uid, ...userData };
@@ -116,6 +108,7 @@ export async function logout() {
   AppState.menuItems   = [];
   AppState.tables      = {};
   AppState.orders      = {};
+  AppState.inventory   = {};
   AppState.currentUser = null;
   await signOut(auth);
 }
@@ -126,21 +119,18 @@ export function watchAuthState(onLoggedIn, onLoggedOut) {
       try {
         const snap = await get(ref(db, `users/${firebaseUser.uid}`));
         if (snap.exists()) {
-         const userData = snap.val();
+          const userData = snap.val();
           AppState.currentUser = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          ...userData
-        };
-
-      // Pending kullanıcıyı engelle
-      if (userData.role === "pending") {
-      await signOut(auth);
-      AppState.currentUser = null;
-      // app.js tarafındaki onLoggedOut çalışacak, login ekranına döner
-      onLoggedOut("pending");
-      return;
-      }
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            ...userData
+          };
+          if (userData.role === "pending") {
+            await signOut(auth);
+            AppState.currentUser = null;
+            onLoggedOut("pending");
+            return;
+          }
           onLoggedIn(AppState.currentUser);
         } else {
           onLoggedOut();
@@ -170,16 +160,19 @@ export async function fetchMenu() {
         const name      = String(row.name || "").trim();
         const category  = String(row.category || "").trim();
         const activeStr = String(row.active || "").trim().toLowerCase();
-        // ÖZELLİK: "pinned" sütununu oku — "true" ise öne çıkanlara alınır
         const pinnedStr = String(row.pinned || "").trim().toLowerCase();
         return {
-          id:          row.id ? String(row.id).trim() : slugify(name || "bosisim"),
+          id:           row.id ? String(row.id).trim() : slugify(name || "bosisim"),
           name,
           category,
-          price:       parseFloat(row.price) || 0,
-          description: row.desc || "",
-          active:      activeStr === "true",
-          pinned:      pinnedStr === "true",
+          price:        parseFloat(row.price) || 0,
+          description:  row.desc || "",
+          active:       activeStr === "true",
+          pinned:       pinnedStr === "true",
+          // YENİ: Varyasyon desteği — Sheets'te "variations" sütunu: "Az,Orta,Çok" gibi
+          variations:   row.variations
+            ? String(row.variations).split(",").map(v => v.trim()).filter(Boolean)
+            : [],
         };
       })
       .filter(item => item.active && item.name !== "" && item.category !== "" && item.price > 0);
@@ -192,18 +185,13 @@ export async function fetchMenu() {
   }
 }
 
-/**
- * Menüyü kategorilere göre gruplar.
- * Sheets'teki "pinned=true" olan ürünler en üste "⭐ Öne Çıkanlar" kategorisinde gösterilir.
- */
 export function getMenuByCategory() {
   const grouped = AppState.menuItems.reduce((acc, item) => {
     (acc[item.category] = acc[item.category] || []).push(item);
     return acc;
   }, {});
 
-  // Firebase'den yıldızlı ürünler (Google Sheets pinned yerine)
-  const starredIds  = Object.keys(AppState.starredItems || {});
+  const starredIds   = Object.keys(AppState.starredItems || {});
   const starredItems = AppState.menuItems.filter(item => starredIds.includes(item.id));
 
   if (starredItems.length > 0) {
@@ -249,7 +237,6 @@ export function watchTables(callback) {
   return unsub;
 }
 
-// Masa Taşıma — siparişleri bir masadan diğerine aktarır
 export async function moveTable(fromTableId, toTableId) {
   requireRole(["admin", "cashier", "waiter"]);
 
@@ -264,21 +251,21 @@ export async function moveTable(fromTableId, toTableId) {
   if (toSnap.val().status === "occupied")
     throw new Error("Hedef masa dolu. Lütfen boş bir masa seçin.");
 
-  const orders      = ordersSnap.val() || {};
-  const fromTable   = fromSnap.val();
-  const toTable     = toSnap.val();
+  const orders    = ordersSnap.val() || {};
+  const fromTable = fromSnap.val();
+  const toTable   = toSnap.val();
 
   const updates = {
-    [`orders/${toTableId}`]:   orders,
-    [`orders/${fromTableId}`]: null,
-    [`tables/${toTableId}/status`]:     fromTable.status,
-    [`tables/${toTableId}/totalPrice`]: fromTable.totalPrice || 0,
-    [`tables/${toTableId}/openedAt`]:   fromTable.openedAt   || Date.now(),
-    [`tables/${toTableId}/openedBy`]:   fromTable.openedBy   || AppState.currentUser.uid,
-    [`tables/${fromTableId}/status`]:     "empty",
-    [`tables/${fromTableId}/totalPrice`]: 0,
-    [`tables/${fromTableId}/openedAt`]:   null,
-    [`tables/${fromTableId}/openedBy`]:   null,
+    [`orders/${toTableId}`]:               orders,
+    [`orders/${fromTableId}`]:             null,
+    [`tables/${toTableId}/status`]:        fromTable.status,
+    [`tables/${toTableId}/totalPrice`]:    fromTable.totalPrice || 0,
+    [`tables/${toTableId}/openedAt`]:      fromTable.openedAt   || Date.now(),
+    [`tables/${toTableId}/openedBy`]:      fromTable.openedBy   || AppState.currentUser.uid,
+    [`tables/${fromTableId}/status`]:      "empty",
+    [`tables/${fromTableId}/totalPrice`]:  0,
+    [`tables/${fromTableId}/openedAt`]:    null,
+    [`tables/${fromTableId}/openedBy`]:    null,
   };
 
   await update(ref(db), updates);
@@ -288,30 +275,86 @@ export async function moveTable(fromTableId, toTableId) {
 // ─────────────────────────────────────────────
 // 6. SİPARİŞ YÖNETİMİ
 // ─────────────────────────────────────────────
-export async function addOrderItem(tableId, product, quantity = 1) {
-  if (quantity < 1) return removeOrderItem(tableId, product.id);
 
+/**
+ * addOrderItem — variation ve note desteği eklendi (Madde 6)
+ * @param {string} tableId
+ * @param {object} product
+ * @param {number} quantity
+ * @param {object} opts — { variation?: string, note?: string }
+ */
+export async function addOrderItem(tableId, product, quantity = 1, opts = {}) {
   const tableOrdersRef = ref(db, `orders/${tableId}`);
   const snap    = await get(tableOrdersRef);
   const existing = snap.val() || {};
 
-  const existingKey = Object.keys(existing).find(
-    k => existing[k].productId === product.id
+  // Ürünü ID, Varyasyon ve Not üçlüsünün tamamen eşleşmesiyle ara
+  const existingKey = Object.keys(existing).find(k => 
+    existing[k].productId === product.id &&
+    (existing[k].variation || "") === (opts.variation || "") &&
+    (existing[k].note || "") === (opts.note || "")
   );
 
+  // 1. EĞER MİKTAR 0 VEYA DAHA AZ İSE (Tamamen silinme ve stok iade durumu)
+  if (quantity < 1) {
+    if (existingKey) {
+      const itemToRemove = existing[existingKey];
+      const qtyToRestore = itemToRemove.quantity || 0;
+      
+      // Silinen adeti stoka geri iade et
+      if (qtyToRestore > 0) {
+        const invSnap = await get(ref(db, `inventory/${product.id}`));
+        if (invSnap.exists()) {
+          const inv = invSnap.val();
+          if (!inv.unlimited) {
+            const newInvQty = (inv.quantity || 0) + qtyToRestore;
+            await update(ref(db, `inventory/${product.id}`), { quantity: newInvQty, updatedAt: Date.now() });
+          }
+        }
+      }
+      
+      // Siparişi veritabanından tamamen sil ve masa toplamını güncelle
+      await remove(ref(db, `orders/${tableId}/${existingKey}`));
+      await recalculateTableTotal(tableId);
+    }
+    return;
+  }
+
+  // 2. MİKTAR 1 VEYA DAHA FAZLA İSE (Ekleme / Güncelleme durumu)
   const orderData = {
-    productId:   product.id,
-    productName: product.name,
-    category:    product.category,
+    productId:    product.id,
+    productName:  product.name,
+    category:     product.category,
     quantity,
-    unitPrice:   product.price,
-    totalPrice:  +(product.price * quantity).toFixed(2),
-    addedAt:     Date.now(),
-    addedBy:     AppState.currentUser.uid,
-    addedByName: AppState.currentUser.displayName || AppState.currentUser.email || "İsimsiz Kullanıcı",
-    note:        ""
+    unitPrice:    product.price,
+    totalPrice:   +(product.price * quantity).toFixed(2),
+    addedAt:      Date.now(),
+    addedBy:      AppState.currentUser.uid,
+    addedByName:  AppState.currentUser.displayName || AppState.currentUser.email || "İsimsiz Kullanıcı",
+    note:         opts.note      || "",
+    variation:    opts.variation || "",
   };
 
+  // Stok kontrolü ve düşme işlemi (Miktar artıyor veya azalıyorsa)
+  const invSnap = await get(ref(db, `inventory/${product.id}`));
+  if (invSnap.exists()) {
+    const inv = invSnap.val();
+    if (!inv.unlimited) {
+      const prevQty = existingKey ? (existing[existingKey].quantity || 0) : 0;
+      const delta   = quantity - prevQty;   // net artış
+      
+      if (delta > 0 && (inv.quantity || 0) < delta) {
+        throw new Error(`"${product.name}" için yeterli stok yok. Mevcut: ${inv.quantity}`);
+      }
+      
+      if (delta !== 0) {
+        const newQty = Math.max(0, (inv.quantity || 0) - delta);
+        await update(ref(db, `inventory/${product.id}`), { quantity: newQty, updatedAt: Date.now() });
+      }
+    }
+  }
+
+  // Yeni siparişi ekle veya olanı güncelle
   if (existingKey) {
     await update(ref(db, `orders/${tableId}/${existingKey}`), orderData);
   } else {
@@ -321,12 +364,68 @@ export async function addOrderItem(tableId, product, quantity = 1) {
   await recalculateTableTotal(tableId);
 }
 
+/**
+ * updateOrderQty — Sipariş panelinden direkt adet güncelleme (Madde 7)
+ * Garsonların order-panel'den +/- yapabilmesi için kullanılır.
+ */
+export async function updateOrderQty(tableId, orderKey, newQty) {
+  const snap = await get(ref(db, `orders/${tableId}/${orderKey}`));
+  if (!snap.exists()) return;
+  const item    = snap.val();
+  const oldQty  = item.quantity || 0;
+  const delta   = newQty - oldQty;   // + artış, - azalış
+
+  // Stok kontrolü ve güncelleme
+  if (delta !== 0) {
+    const invSnap = await get(ref(db, `inventory/${item.productId}`));
+    if (invSnap.exists()) {
+      const inv = invSnap.val();
+      if (!inv.unlimited) {
+        if (delta > 0 && (inv.quantity || 0) < delta) {
+          throw new Error(`"${item.productName}" için yeterli stok yok. Mevcut: ${inv.quantity}`);
+        }
+        const newInvQty = Math.max(0, (inv.quantity || 0) - delta);
+        await update(ref(db, `inventory/${item.productId}`), { quantity: newInvQty, updatedAt: Date.now() });
+      }
+    }
+  }
+
+  if (newQty < 1) {
+    await remove(ref(db, `orders/${tableId}/${orderKey}`));
+  } else {
+    await update(ref(db, `orders/${tableId}/${orderKey}`), {
+      quantity:   newQty,
+      totalPrice: +(item.unitPrice * newQty).toFixed(2),
+    });
+  }
+  await recalculateTableTotal(tableId);
+}
+
 export async function removeOrderItem(tableId, productId) {
   const snap = await get(ref(db, `orders/${tableId}`));
   if (!snap.exists()) return;
-  const orders = snap.val();
+  
+  const orders      = snap.val();
   const keyToDelete = Object.keys(orders).find(k => orders[k].productId === productId);
   if (!keyToDelete) return;
+
+  // --- EKLENEN KISIM: STOK İADE İŞLEMİ ---
+  const itemToRemove = orders[keyToDelete];
+  const qtyToRestore = itemToRemove.quantity || 0;
+
+  if (qtyToRestore > 0) {
+    const invSnap = await get(ref(db, `inventory/${productId}`));
+    if (invSnap.exists()) {
+      const inv = invSnap.val();
+      if (!inv.unlimited) {
+        const newInvQty = (inv.quantity || 0) + qtyToRestore; // Silinen adeti stoka geri ekle
+        await update(ref(db, `inventory/${productId}`), { quantity: newInvQty, updatedAt: Date.now() });
+      }
+    }
+  }
+  // ----------------------------------------
+
+  // Siparişi sil ve masanın toplam fiyatını güncelle
   await remove(ref(db, `orders/${tableId}/${keyToDelete}`));
   await recalculateTableTotal(tableId);
 }
@@ -365,7 +464,7 @@ export function watchTableOrders(tableId, callback) {
 // ─────────────────────────────────────────────
 // 7. MASA KAPATMA (HESAP ALMA)
 // ─────────────────────────────────────────────
-export async function closeTable(tableId) {
+export async function closeTable(tableId, paymentMethod = "cash") {
   requireRole(["admin", "cashier"]);
 
   const [tableSnap, ordersSnap] = await Promise.all([
@@ -393,31 +492,25 @@ export async function closeTable(tableId) {
     totalAmount:  +total.toFixed(2),
     itemCount:    Object.keys(orders).length,
     items:        orders,
-    paymentType:  "full"
+    paymentType:     "full",
+    paymentMethod:   paymentMethod   // "cash" | "card"
   };
 
   const updates = {
-    [`history/${today}/${histKey}`]: historyEntry,
-    [`orders/${tableId}`]:           null,
-    [`tables/${tableId}/status`]:    "empty",
+    [`history/${today}/${histKey}`]:  historyEntry,
+    [`orders/${tableId}`]:            null,
+    [`tables/${tableId}/status`]:     "empty",
     [`tables/${tableId}/totalPrice`]: 0,
-    [`tables/${tableId}/openedAt`]:  null,
-    [`tables/${tableId}/openedBy`]:  null,
+    [`tables/${tableId}/openedAt`]:   null,
+    [`tables/${tableId}/openedBy`]:   null,
   };
 
   await update(ref(db), updates);
   return historyEntry;
 }
 
-// ─────────────────────────────────────────────
 // Hesabı Bölme — KISMİ ADET DESTEĞİ
-// Seçilen sipariş kalemlerinde belirtilen adeti öde, masada kalan bırak.
-// @param {string} tableId
-// @param {Array<{key: string, qty: number}>} selections
-//   key  → sipariş Firebase anahtarı
-//   qty  → ödenmek istenen adet (≥1, ≤item.quantity)
-// ─────────────────────────────────────────────
-export async function paySelectedItems(tableId, selections) {
+export async function paySelectedItems(tableId, selections, paymentMethod = "cash") {
   requireRole(["admin", "cashier"]);
 
   const [tableSnap, ordersSnap] = await Promise.all([
@@ -433,21 +526,18 @@ export async function paySelectedItems(tableId, selections) {
   if (!selections || selections.length === 0)
     throw new Error("Ödenecek ürün seçilmedi.");
 
-  // Tarihçe için ödenen kalemleri kaydet
-  const paidItems = {};
+  const paidItems   = {};
   let selectedTotal = 0;
-
-  const updates = {};
+  const updates     = {};
 
   selections.forEach(({ key, qty }) => {
     const item = orders[key];
     if (!item) return;
 
-    const payQty  = Math.min(Math.max(1, qty), item.quantity); // 1 ≤ payQty ≤ mevcut
-    const remain  = item.quantity - payQty;
+    const payQty    = Math.min(Math.max(1, qty), item.quantity);
+    const remain    = item.quantity - payQty;
     const unitPrice = item.unitPrice || 0;
 
-    // Tarihçeye eklenecek kalem
     paidItems[key] = {
       ...item,
       quantity:   payQty,
@@ -456,10 +546,8 @@ export async function paySelectedItems(tableId, selections) {
     selectedTotal += unitPrice * payQty;
 
     if (remain <= 0) {
-      // Tüm adedi ödendi → siparişten tamamen kaldır
       updates[`orders/${tableId}/${key}`] = null;
     } else {
-      // Kısmi ödeme → kalan adeti güncelle
       updates[`orders/${tableId}/${key}/quantity`]   = remain;
       updates[`orders/${tableId}/${key}/totalPrice`] = +(unitPrice * remain).toFixed(2);
     }
@@ -474,21 +562,20 @@ export async function paySelectedItems(tableId, selections) {
   const historyEntry = {
     tableName:    table.name,
     tableId,
-    openedAt:     table.openedAt  || Date.now(),
+    openedAt:     table.openedAt || Date.now(),
     closedAt:     Date.now(),
     closedBy:     AppState.currentUser.uid,
     closedByName: AppState.currentUser.displayName || AppState.currentUser.email || "İsimsiz",
     totalAmount:  +selectedTotal.toFixed(2),
     itemCount:    Object.keys(paidItems).length,
     items:        paidItems,
-    paymentType:  "partial"
+    paymentType:    "partial",
+    paymentMethod:  paymentMethod   // "cash" | "card"
   };
 
   updates[`history/${today}/${histKey}`] = historyEntry;
 
   await update(ref(db), updates);
-
-  // Kalan siparişler için masa toplamını yeniden hesapla
   await recalculateTableTotal(tableId);
 
   return { ...historyEntry, selectedTotal: +selectedTotal.toFixed(2) };
@@ -515,7 +602,6 @@ export async function getDailyRevenue(date) {
   };
 }
 
-// Gelişmiş Gün Sonu Raporu — ürün bazlı satış özeti
 export async function getDailySalesSummary(date) {
   requireRole(["admin", "cashier"]);
   const history  = await getHistoryByDate(date);
@@ -531,11 +617,11 @@ export async function getDailySalesSummary(date) {
       const id = item.productId || item.productName;
       if (!productSales[id]) {
         productSales[id] = {
-          productName: item.productName,
-          category:    item.category || "-",
-          quantity:    0,
+          productName:  item.productName,
+          category:     item.category || "-",
+          quantity:     0,
           totalRevenue: 0,
-          unitPrice:   item.unitPrice || 0
+          unitPrice:    item.unitPrice || 0
         };
       }
       productSales[id].quantity     += item.quantity || 1;
@@ -546,13 +632,181 @@ export async function getDailySalesSummary(date) {
   const productList = Object.values(productSales)
     .sort((a, b) => b.totalRevenue - a.totalRevenue);
 
+  let cashTotal = 0, cardTotal = 0;
+  sessions.forEach(s => {
+    if (s.paymentMethod === "card") cardTotal += s.totalAmount || 0;
+    else cashTotal += s.totalAmount || 0;
+  });
+
   return {
     date,
     grandTotal:   +grandTotal.toFixed(2),
+    cashTotal:    +cashTotal.toFixed(2),
+    cardTotal:    +cardTotal.toFixed(2),
     sessionCount: sessions.length,
     products:     productList
   };
 }
+
+// YENİ (Madde 4): Aylık satış özeti — seçilen ayın tüm günlerini toplar
+export async function getMonthlySalesSummary(yearMonth) {
+  requireRole(["admin", "cashier"]);
+  // yearMonth: "2024-11" formatında
+  const historySnap = await get(ref(db, "history"));
+  const allHistory  = historySnap.val() || {};
+
+  const productSales = {};
+  let grandTotal     = 0;
+  let sessionCount   = 0;
+  const dailyRevenue = {};
+
+  Object.entries(allHistory).forEach(([date, daySessions]) => {
+    if (!date.startsWith(yearMonth)) return;
+    Object.values(daySessions).forEach(session => {
+      grandTotal += session.totalAmount || 0;
+      sessionCount++;
+      dailyRevenue[date] = (dailyRevenue[date] || 0) + (session.totalAmount || 0);
+
+      const items = session.items || {};
+      Object.values(items).forEach(item => {
+        const id = item.productId || item.productName;
+        if (!productSales[id]) {
+          productSales[id] = {
+            productName:  item.productName,
+            category:     item.category || "-",
+            quantity:     0,
+            totalRevenue: 0,
+          };
+        }
+        productSales[id].quantity     += item.quantity || 1;
+        productSales[id].totalRevenue += item.totalPrice || 0;
+      });
+    });
+  });
+
+  let cashTotal = 0, cardTotal = 0;
+  Object.entries(allHistory).forEach(([date, daySessions]) => {
+    if (!date.startsWith(yearMonth)) return;
+    Object.values(daySessions).forEach(s => {
+      if (s.paymentMethod === "card") cardTotal += s.totalAmount || 0;
+      else cashTotal += s.totalAmount || 0;
+    });
+  });
+
+  return {
+    yearMonth,
+    grandTotal:   +grandTotal.toFixed(2),
+    cashTotal:    +cashTotal.toFixed(2),
+    cardTotal:    +cardTotal.toFixed(2),
+    sessionCount,
+    products:     Object.values(productSales).sort((a, b) => b.totalRevenue - a.totalRevenue),
+    dailyRevenue,
+  };
+}
+
+// ─────────────────────────────────────────────
+// YENİ (Madde 5): GİDERLER (MUHASEBE)
+// ─────────────────────────────────────────────
+
+/**
+ * Yeni gider ekle.
+ * @param {string} date  — "YYYY-MM-DD"
+ * @param {object} expense — { type, amount, note }
+ */
+export async function addExpense(date, expense) {
+  requireRole(["admin", "cashier"]);
+  if (!expense.type)   throw new Error("Gider türü boş olamaz.");
+  if (!expense.amount || isNaN(expense.amount)) throw new Error("Geçerli bir tutar girin.");
+
+  const expRef = push(ref(db, `expenses/${date}`));
+  await set(expRef, {
+    type:      expense.type.trim(),
+    amount:    +parseFloat(expense.amount).toFixed(2),
+    note:      (expense.note || "").trim(),
+    createdAt: Date.now(),
+    createdBy: AppState.currentUser.uid,
+    createdByName: AppState.currentUser.displayName || AppState.currentUser.email,
+  });
+  return expRef.key;
+}
+
+export async function deleteExpense(date, key) {
+  requireRole(["admin", "cashier"]);
+  await remove(ref(db, `expenses/${date}/${key}`));
+}
+
+export async function getExpensesByDate(date) {
+  requireRole(["admin", "cashier"]);
+  const snap = await get(ref(db, `expenses/${date}`));
+  return snap.val() || {};
+}
+
+export async function getExpensesByMonth(yearMonth) {
+  requireRole(["admin", "cashier"]);
+  const snap = await get(ref(db, "expenses"));
+  const all  = snap.val() || {};
+  let total  = 0;
+  const byType = {};
+
+  Object.entries(all).forEach(([date, dayExpenses]) => {
+    if (!date.startsWith(yearMonth)) return;
+    Object.values(dayExpenses).forEach(e => {
+      total += e.amount || 0;
+      byType[e.type] = (byType[e.type] || 0) + e.amount;
+    });
+  });
+
+  return { yearMonth, total: +total.toFixed(2), byType };
+}
+
+// ─────────────────────────────────────────────
+// YENİ (Madde 2): STOK YÖNETİMİ
+// ─────────────────────────────────────────────
+
+/**
+ * Stok güncelle (admin).
+ * @param {string} productId
+ * @param {number|null} quantity — null = sınırsız
+ */
+export async function setInventory(productId, quantity) {
+  requireRole("admin");
+  const unlimited = quantity === null || quantity === "unlimited";
+  await set(ref(db, `inventory/${productId}`), {
+    quantity:  unlimited ? null : Math.max(0, parseInt(quantity) || 0),
+    unlimited,
+    updatedAt: Date.now(),
+    updatedBy: AppState.currentUser.uid,
+  });
+}
+
+export async function getAllInventory() {
+  const snap = await get(ref(db, "inventory"));
+  AppState.inventory = snap.val() || {};
+  return AppState.inventory;
+}
+
+export function watchInventory(callback) {
+  const invRef = ref(db, "inventory");
+  const unsub  = onValue(invRef, (snap) => {
+    AppState.inventory = snap.val() || {};
+    callback(AppState.inventory);
+  });
+  AppState.listeners.push(unsub);
+  return unsub;
+}
+
+/**
+ * Sipariş eklerken stok düş.
+ * Yeni qty, eski qty'ye göre delta hesaplanır.
+ */
+export async function deductInventory(productId, deltaQty) {
+  const invSnap = await get(ref(db, `inventory/${productId}`));
+  if (!invSnap.exists()) return;
+  const inv = invSnap.val();
+  if (inv.unlimited) return;
+  const newQty = Math.max(0, (inv.quantity || 0) - deltaQty);
+  await update(ref(db, `inventory/${productId}`), { quantity: newQty, updatedAt: Date.now() });
+} 
 
 // ─────────────────────────────────────────────
 // Mutfak Bildirim Sistemi
@@ -560,18 +814,20 @@ export async function getDailySalesSummary(date) {
 export async function sendKitchenNotification(tableId, tableName, orders) {
   const notifRef = push(ref(db, "notifications"));
   const items = Object.values(orders).map(o => ({
-    name: o.productName,
-    qty:  o.quantity
+    name:      o.productName,
+    qty:       o.quantity,
+    variation: o.variation || "",
+    note:      o.note      || "",
   }));
 
   await set(notifRef, {
     tableId,
     tableName,
     items,
-    sentAt:    Date.now(),
-    sentBy:    AppState.currentUser.uid,
+    sentAt:     Date.now(),
+    sentBy:     AppState.currentUser.uid,
     sentByName: AppState.currentUser.displayName || AppState.currentUser.email,
-    status:    "pending"
+    status:     "pending"
   });
 
   return notifRef.key;
@@ -601,7 +857,7 @@ export async function getAllUsers() {
 
 export async function updateUserRole(uid, newRole) {
   requireRole("admin");
-  const validRoles = ["admin", "cashier", "waiter","pending"];
+  const validRoles = ["admin", "cashier", "waiter", "pending"];
   if (!validRoles.includes(newRole)) throw new Error("Geçersiz rol.");
   await update(ref(db, `users/${uid}`), { role: newRole });
 }
@@ -644,14 +900,11 @@ export async function deleteUserRecord(uid) {
   await remove(ref(db, `users/${uid}`));
 }
 
-// ─────────────────────────────────────────────
-// Yıldızlı Ürünler (Firebase settings/starredItems)
-// ─────────────────────────────────────────────
+// Yıldızlı Ürünler
 export async function getStarredItems() {
   const snap = await get(ref(db, "settings/starredItems"));
   const val  = snap.val();
   if (!val) return {};
-  // Hem object hem array formatını destekle
   if (typeof val === "object") return val;
   return {};
 }

@@ -6,12 +6,12 @@
 
 const CACHE_NAME   = "hankafem-v2";
 const SHELL_ASSETS = [
-  "/",
-  "/index.html",
-  "/css/style.css",
-  "/js/core.js",
-  "/js/app.js",
-  "/manifest.json",
+  "./",
+  "./index.html",
+  "./css/style.css",
+  "./js/core.js",
+  "./js/app.js",
+  "./manifest.json",
 ];
 
 // Kurulum

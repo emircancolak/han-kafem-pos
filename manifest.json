@@ -2,7 +2,7 @@
   "name": "Han Kafem POS",
   "short_name": "Han Kafem",
   "description": "Han Kafem İç Sipariş ve POS Sistemi",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#0f0c07",
   "theme_color": "#1a1208",

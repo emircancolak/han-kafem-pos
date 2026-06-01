@@ -25,7 +25,8 @@ import {
   update,
   remove,
   onValue,
-  serverTimestamp
+  serverTimestamp,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 // ─────────────────────────────────────────────
@@ -58,7 +59,8 @@ export const AppState = {
   orders:       {},
   listeners:    [],
   starredItems: {},
-  inventory:    {},   // YENİ: Stok verileri
+  inventory:    {},
+  isPinVerified: false,   // YENİ: Stok verileri
 };
 
 // ─────────────────────────────────────────────
@@ -110,6 +112,7 @@ export async function logout() {
   AppState.orders      = {};
   AppState.inventory   = {};
   AppState.currentUser = null;
+  AppState.isPinVerified = false;
   await signOut(auth);
 }
 
@@ -285,76 +288,75 @@ export async function moveTable(fromTableId, toTableId) {
  */
 export async function addOrderItem(tableId, product, quantity = 1, opts = {}) {
   const tableOrdersRef = ref(db, `orders/${tableId}`);
-  const snap    = await get(tableOrdersRef);
+  const snap = await get(tableOrdersRef);
   const existing = snap.val() || {};
 
-  // Ürünü ID, Varyasyon ve Not üçlüsünün tamamen eşleşmesiyle ara
-  const existingKey = Object.keys(existing).find(k => 
-    existing[k].productId === product.id &&
-    (existing[k].variation || "") === (opts.variation || "") &&
-    (existing[k].note || "") === (opts.note || "")
-  );
+  const searchVariation = String(opts.variation || "").trim();
+  const searchNote = String(opts.note || "").trim();
 
-  // 1. EĞER MİKTAR 0 VEYA DAHA AZ İSE (Tamamen silinme ve stok iade durumu)
+  // En güvenli existingKey araması
+  let existingKey = null;
+  for (const k of Object.keys(existing)) {
+    const item = existing[k];
+    if (item.productId === product.id &&
+        String(item.variation || "").trim() === searchVariation &&
+        String(item.note || "").trim() === searchNote) {
+      existingKey = k;
+      break;
+    }
+  }
+
+  // Miktar sıfırlama
   if (quantity < 1) {
     if (existingKey) {
       const itemToRemove = existing[existingKey];
       const qtyToRestore = itemToRemove.quantity || 0;
-      
-      // Silinen adeti stoka geri iade et
+
       if (qtyToRestore > 0) {
-        const invSnap = await get(ref(db, `inventory/${product.id}`));
-        if (invSnap.exists()) {
-          const inv = invSnap.val();
-          if (!inv.unlimited) {
-            const newInvQty = (inv.quantity || 0) + qtyToRestore;
-            await update(ref(db, `inventory/${product.id}`), { quantity: newInvQty, updatedAt: Date.now() });
-          }
-        }
+        const invRef = ref(db, `inventory/${product.id}`);
+        await runTransaction(invRef, (current) => {
+          if (!current || current.unlimited) return current;
+          return { ...current, quantity: (current.quantity || 0) + qtyToRestore, updatedAt: Date.now() };
+        });
       }
-      
-      // Siparişi veritabanından tamamen sil ve masa toplamını güncelle
       await remove(ref(db, `orders/${tableId}/${existingKey}`));
       await recalculateTableTotal(tableId);
     }
     return;
   }
 
-  // 2. MİKTAR 1 VEYA DAHA FAZLA İSE (Ekleme / Güncelleme durumu)
   const orderData = {
-    productId:    product.id,
-    productName:  product.name,
-    category:     product.category,
+    productId: product.id,
+    productName: product.name,
+    category: product.category,
     quantity,
-    unitPrice:    product.price,
-    totalPrice:   +(product.price * quantity).toFixed(2),
-    addedAt:      Date.now(),
-    addedBy:      AppState.currentUser.uid,
-    addedByName:  AppState.currentUser.displayName || AppState.currentUser.email || "İsimsiz Kullanıcı",
-    note:         opts.note      || "",
-    variation:    opts.variation || "",
+    unitPrice: product.price,
+    totalPrice: +(product.price * quantity).toFixed(2),
+    addedAt: Date.now(),
+    addedBy: AppState.currentUser.uid,
+    addedByName: AppState.currentUser.displayName || AppState.currentUser.email || "İsimsiz",
+    note: searchNote,
+    variation: searchVariation,
   };
 
-  // Stok kontrolü ve düşme işlemi (Miktar artıyor veya azalıyorsa)
-  const invSnap = await get(ref(db, `inventory/${product.id}`));
-  if (invSnap.exists()) {
-    const inv = invSnap.val();
-    if (!inv.unlimited) {
-      const prevQty = existingKey ? (existing[existingKey].quantity || 0) : 0;
-      const delta   = quantity - prevQty;   // net artış
+  const prevQty = existingKey ? (existing[existingKey].quantity || 0) : 0;
+  const delta = quantity - prevQty;
+
+ if (delta !== 0) { 
+    const invRef = ref(db, `inventory/${product.id}`);
+    await runTransaction(invRef, (current) => {
+      if (!current || current.unlimited) return current;
+      const currentStock = current.quantity || 0;
       
-      if (delta > 0 && (inv.quantity || 0) < delta) {
-        throw new Error(`"${product.name}" için yeterli stok yok. Mevcut: ${inv.quantity}`);
+      // Sadece artış varsa stok yetersizliği kontrolü yap
+      if (delta > 0 && currentStock < delta) {
+        throw new Error(`"${product.name}" için yeterli stok yok.`);
       }
       
-      if (delta !== 0) {
-        const newQty = Math.max(0, (inv.quantity || 0) - delta);
-        await update(ref(db, `inventory/${product.id}`), { quantity: newQty, updatedAt: Date.now() });
-      }
-    }
+      return { ...current, quantity: currentStock - delta, updatedAt: Date.now() };
+    });
   }
 
-  // Yeni siparişi ekle veya olanı güncelle
   if (existingKey) {
     await update(ref(db, `orders/${tableId}/${existingKey}`), orderData);
   } else {
@@ -369,64 +371,74 @@ export async function addOrderItem(tableId, product, quantity = 1, opts = {}) {
  * Garsonların order-panel'den +/- yapabilmesi için kullanılır.
  */
 export async function updateOrderQty(tableId, orderKey, newQty) {
-  const snap = await get(ref(db, `orders/${tableId}/${orderKey}`));
+  const orderRef = ref(db, `orders/${tableId}/${orderKey}`);
+  const snap = await get(orderRef);
   if (!snap.exists()) return;
-  const item    = snap.val();
-  const oldQty  = item.quantity || 0;
-  const delta   = newQty - oldQty;   // + artış, - azalış
 
-  // Stok kontrolü ve güncelleme
+  const item = snap.val();
+  const oldQty = item.quantity || 0;
+  const delta = newQty - oldQty;
+
+  // === STOK GÜNCELLEMESİ (Transaction ile) ===
   if (delta !== 0) {
-    const invSnap = await get(ref(db, `inventory/${item.productId}`));
-    if (invSnap.exists()) {
-      const inv = invSnap.val();
-      if (!inv.unlimited) {
-        if (delta > 0 && (inv.quantity || 0) < delta) {
-          throw new Error(`"${item.productName}" için yeterli stok yok. Mevcut: ${inv.quantity}`);
-        }
-        const newInvQty = Math.max(0, (inv.quantity || 0) - delta);
-        await update(ref(db, `inventory/${item.productId}`), { quantity: newInvQty, updatedAt: Date.now() });
+    const invRef = ref(db, `inventory/${item.productId}`);
+
+    await runTransaction(invRef, (currentData) => {
+      if (!currentData || currentData.unlimited === true) {
+        return currentData;
       }
-    }
+
+      const currentStock = currentData.quantity || 0;
+
+      // Artış varsa stok kontrolü yap
+      if (delta > 0 && currentStock < delta) {
+        throw new Error(`"${item.productName}" için yeterli stok yok. Mevcut: ${currentStock}`);
+      }
+
+      const newStock = Math.max(0, currentStock - delta);
+      return {
+        ...currentData,
+        quantity: newStock,
+        updatedAt: Date.now()
+      };
+    });
   }
 
+  // Sipariş miktarını güncelle
   if (newQty < 1) {
-    await remove(ref(db, `orders/${tableId}/${orderKey}`));
+    await remove(orderRef);
   } else {
-    await update(ref(db, `orders/${tableId}/${orderKey}`), {
-      quantity:   newQty,
+    await update(orderRef, {
+      quantity: newQty,
       totalPrice: +(item.unitPrice * newQty).toFixed(2),
     });
   }
+
   await recalculateTableTotal(tableId);
 }
 
-export async function removeOrderItem(tableId, productId) {
-  const snap = await get(ref(db, `orders/${tableId}`));
+export async function removeOrderItem(tableId, orderKey) {
+  const orderRef = ref(db, `orders/${tableId}/${orderKey}`);
+  const snap = await get(orderRef);
   if (!snap.exists()) return;
-  
-  const orders      = snap.val();
-  const keyToDelete = Object.keys(orders).find(k => orders[k].productId === productId);
-  if (!keyToDelete) return;
 
-  // --- EKLENEN KISIM: STOK İADE İŞLEMİ ---
-  const itemToRemove = orders[keyToDelete];
-  const qtyToRestore = itemToRemove.quantity || 0;
+  const item = snap.val();
+  const qtyToRestore = item.quantity || 0;
 
+  // Stok iadesi (güvenli)
   if (qtyToRestore > 0) {
-    const invSnap = await get(ref(db, `inventory/${productId}`));
-    if (invSnap.exists()) {
-      const inv = invSnap.val();
-      if (!inv.unlimited) {
-        const newInvQty = (inv.quantity || 0) + qtyToRestore; // Silinen adeti stoka geri ekle
-        await update(ref(db, `inventory/${productId}`), { quantity: newInvQty, updatedAt: Date.now() });
-      }
-    }
+    const invRef = ref(db, `inventory/${item.productId}`);
+    await runTransaction(invRef, (current) => {
+      if (!current || current.unlimited) return current;
+      return {
+        ...current,
+        quantity: (current.quantity || 0) + qtyToRestore,
+        updatedAt: Date.now()
+      };
+    });
   }
-  // ----------------------------------------
 
-  // Siparişi sil ve masanın toplam fiyatını güncelle
-  await remove(ref(db, `orders/${tableId}/${keyToDelete}`));
+  await remove(orderRef);
   await recalculateTableTotal(tableId);
 }
 
@@ -479,7 +491,7 @@ export async function closeTable(tableId, paymentMethod = "cash") {
   const total  = Object.values(orders)
     .reduce((sum, item) => sum + (item.totalPrice || 0), 0);
 
-  const today   = new Date().toISOString().split("T")[0];
+  const today   = getBusinessDate();
   const histKey = push(ref(db, `history/${today}`)).key;
 
   const historyEntry = {
@@ -556,7 +568,7 @@ export async function paySelectedItems(tableId, selections, paymentMethod = "cas
   if (Object.keys(paidItems).length === 0)
     throw new Error("Ödenecek geçerli ürün bulunamadı.");
 
-  const today   = new Date().toISOString().split("T")[0];
+  const today   = getBusinessDate();
   const histKey = push(ref(db, `history/${today}`)).key;
 
   const historyEntry = {
@@ -812,29 +824,59 @@ export async function deductInventory(productId, deltaQty) {
 // Mutfak Bildirim Sistemi
 // ─────────────────────────────────────────────
 export async function sendKitchenNotification(tableId, tableName, orders) {
-  const notifRef = push(ref(db, "notifications"));
-  const items = Object.values(orders).map(o => ({
-    name:      o.productName,
-    qty:       o.quantity,
-    variation: o.variation || "",
-    note:      o.note      || "",
-  }));
+  const itemsToSend = [];
+  const updates = {};
+  let isEkSiparis = false;
 
-  await set(notifRef, {
-    tableId,
-    tableName,
-    items,
-    sentAt:     Date.now(),
-    sentBy:     AppState.currentUser.uid,
-    sentByName: AppState.currentUser.displayName || AppState.currentUser.email,
-    status:     "pending"
+  // Masada daha önce mutfağa gönderilmiş ürün var mı kontrol et
+  Object.values(orders).forEach(o => {
+    if (o.sentQty && o.sentQty > 0) isEkSiparis = true;
   });
 
+  // Sadece yeni eklenen veya miktarı artanları seç
+  for (const [key, o] of Object.entries(orders)) {
+    const sent = o.sentQty || 0;
+    if (o.quantity > sent) {
+      itemsToSend.push({
+        name: o.productName,
+        qty: o.quantity - sent, // Sadece aradaki farkı mutfağa gönder
+        variation: o.variation || "",
+        note: o.note || ""
+      });
+      // Ürünün gönderilmiş miktarını güncelle
+      updates[`orders/${tableId}/${key}/sentQty`] = o.quantity;
+    }
+  }
+
+  if (itemsToSend.length === 0) throw new Error("Mutfağa gönderilecek yeni sipariş yok!");
+
+  const notifRef = push(ref(db, "notifications"));
+  updates[`notifications/${notifRef.key}`] = {
+    tableId,
+    tableName: isEkSiparis ? `${tableName} (Ek Sipariş)` : tableName,
+    items: itemsToSend,
+    sentAt: Date.now(),
+    sentBy: AppState.currentUser.uid,
+    sentByName: AppState.currentUser.displayName || AppState.currentUser.email,
+    status: "pending"
+  };
+  
+  // Masa durumunu mutfak için hazırlanıyor olarak işaretle
+  updates[`tables/${tableId}/kitchenStatus`] = "preparing";
+
+  await update(ref(db), updates);
   return notifRef.key;
 }
 
 export async function markNotificationReady(notifKey) {
-  await remove(ref(db, `notifications/${notifKey}`));
+  const snap = await get(ref(db, `notifications/${notifKey}`));
+  if (snap.exists()) {
+    const data = snap.val();
+    const updates = {};
+    updates[`notifications/${notifKey}`] = null; // Bildirimi sil
+    updates[`tables/${data.tableId}/kitchenStatus`] = "ready"; // Masayı hazır yap
+    await update(ref(db), updates);
+  }
 }
 
 export function watchNotifications(callback) {
@@ -892,6 +934,31 @@ export async function changePassword(newPassword) {
   if (newPassword.length < 6) throw new Error("Şifre en az 6 karakter olmalıdır.");
   await updatePassword(user, newPassword);
 }
+// ─────────────────────────────────────────────
+// ADMİN PİN YÖNETİMİ
+// ─────────────────────────────────────────────
+export async function setAdminPin(newPin) {
+  if (AppState.currentUser?.role !== "admin") throw new Error("Sadece admin yetkisi olanlar PIN belirleyebilir.");
+  if (!newPin || newPin.length !== 4 || isNaN(newPin)) throw new Error("PIN sadece 4 haneli rakamlardan oluşmalıdır.");
+  
+  await update(ref(db, `users/${AppState.currentUser.uid}`), { pin: newPin });
+  AppState.currentUser.pin = newPin;
+  AppState.isPinVerified = true;
+}
+
+export async function verifyAdminPin(enteredPin) {
+  if (AppState.currentUser?.role !== "admin") return true; // Sadece adminde PIN sor
+  
+  const actualPin = AppState.currentUser.pin;
+  if (!actualPin) throw new Error("PIN oluşturulmamış.");
+  
+  if (enteredPin === actualPin) {
+    AppState.isPinVerified = true;
+    return true;
+  } else {
+    throw new Error("Hatalı PIN. Lütfen tekrar deneyin.");
+  }
+}
 
 export async function deleteUserRecord(uid) {
   requireRole("admin");
@@ -932,6 +999,28 @@ export function formatCurrency(amount) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency", currency: "TRY", minimumFractionDigits: 2
   }).format(amount || 0);
+}
+
+// ============================================================
+// YENİ: Garson için masa siparişlerini canlı çekme
+// ============================================================
+export async function getTableOrders(tableId) {
+  const { get, ref } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js");
+  const snap = await get(ref(db, `orders/${tableId}`));
+  return snap.val() || {};
+}
+
+// İş Günü (Business Day) Hesaplayıcı
+// Saat sabah 05:00'ten önceyse, bir önceki günün tarihini döndürür.
+export function getBusinessDate() {
+  const now = new Date();
+  if (now.getHours() < 5) {
+    now.setDate(now.getDate() - 1); // Günü 1 geri al
+  }
+  // Türkiye saat dilimine uygun formatla (YYYY-MM-DD)
+  const offset = now.getTimezoneOffset() * 60000;
+  const localISOTime = (new Date(now - offset)).toISOString().slice(0, 10);
+  return localISOTime;
 }
 
 export { db, auth };

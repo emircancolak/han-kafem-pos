@@ -16,7 +16,7 @@ import {
   getAllUsers, updateUserRole, deleteUserRecord,
   setInventory, getAllInventory, watchInventory,
   formatCurrency, toggleStarredItem, watchStarredItems,
-  AppState
+  getTableOrders,AppState,setAdminPin, verifyAdminPin,getBusinessDate
 } from "./core.js";
 
 // ─────────────────────────────────────────────
@@ -42,43 +42,23 @@ function showScreen(name) {
 }
 
 // ─────────────────────────────────────────────
-// BAŞLANGIÇ
+// BAŞLANGIÇ VE PİN KONTROLÜ
 // ─────────────────────────────────────────────
 watchAuthState(
   async (user) => {
     updateHeader(user);
-
-    // YENİ (Madde 1): Garson fiyat gizleme
     applyRoleClass(user.role);
 
-    showMenuLoadingOverlay(true);
-    try {
-      await fetchMenu();
-    } catch {
-      showToast("Menü yüklenemedi!", "error");
-    } finally {
-      showMenuLoadingOverlay(false);
+    // Ayarlar menüsündeki PIN değiştirme bölümünü sadece admin'e göster
+    const pinSection = document.getElementById("settings-pin-section");
+    if (pinSection) pinSection.style.display = user.role === "admin" ? "flex" : "none";
+
+    // Admin ise ve henüz PIN girmemişse PIN ekranını göster, değilse normal devam et
+    if (user.role === "admin" && !AppState.isPinVerified) {
+      showPinModal(user);
+    } else {
+      await continueAppLoad();
     }
-
-    // YENİ (Madde 2): Stok verilerini yükle ve izle
-    await getAllInventory();
-    watchInventory((inv) => {
-      AppState.inventory = inv;
-      if (currentTableId) renderMenu(currentTableId);
-    });
-
-    showScreen("dashboard");
-
-    watchStarredItems((starred) => {
-      AppState.starredItems = starred;
-      if (currentTableId) renderMenu(currentTableId);
-    });
-
-    startDashboard();
-    startNotificationListener();
-
-    // YENİ (Madde 8): Ses nesnesini hazırla
-    initNotifSound();
   },
   (reason) => {
     const loginBtn = document.getElementById("btn-login");
@@ -95,6 +75,117 @@ watchAuthState(
     }
   }
 );
+
+// Admin PIN doğrulandıktan sonra (veya diğer roller için) uygulamanın asıl verilerini çeken fonksiyon
+async function continueAppLoad() {
+  showMenuLoadingOverlay(true);
+  try {
+    await fetchMenu();
+  } catch {
+    showToast("Menü yüklenemedi!", "error");
+  } finally {
+    showMenuLoadingOverlay(false);
+  }
+
+  await getAllInventory();
+  watchInventory((inv) => {
+    AppState.inventory = inv;
+    if (currentTableId) renderMenu(currentTableId);
+  });
+
+  showScreen("dashboard");
+
+  watchStarredItems((starred) => {
+    AppState.starredItems = starred;
+    if (currentTableId) renderMenu(currentTableId);
+  });
+
+  startDashboard();
+  startNotificationListener();
+  initNotifSound();
+}
+
+// ─────────────────────────────────────────────
+// PİN MODALI FONKSİYONLARI
+// ─────────────────────────────────────────────
+function showPinModal(user) {
+  const modal = document.getElementById("modal-pin");
+  const isSetup = !user.pin; // Veritabanında PIN kayıtlı değilse "oluşturma" moduna geç
+  
+  document.getElementById("pin-modal-title").textContent = isSetup ? "Admin PIN Oluştur" : "Admin Girişi";
+  document.getElementById("pin-modal-desc").textContent = isSetup 
+    ? "Sistemi kullanmaya başlamadan önce lütfen 4 haneli bir PIN belirleyin." 
+    : "Devam etmek için 4 haneli PIN kodunuzu girin.";
+    
+  document.getElementById("input-pin").value = "";
+  document.getElementById("pin-error").textContent = "";
+  
+  modal.classList.remove("hidden");
+  setTimeout(() => document.getElementById("input-pin").focus(), 100);
+}
+
+document.getElementById("btn-submit-pin")?.addEventListener("click", async () => {
+  const pin = document.getElementById("input-pin").value;
+  const errEl = document.getElementById("pin-error");
+  errEl.textContent = "";
+
+  if (pin.length !== 4) {
+    return errEl.textContent = "PIN 4 haneli olmalıdır.";
+  }
+
+  try {
+    if (!AppState.currentUser.pin) {
+      // PIN yoksa oluştur
+      await setAdminPin(pin);
+      showToast("PIN başarıyla oluşturuldu.");
+    } else {
+      // PIN varsa doğrula
+      await verifyAdminPin(pin);
+    }
+    
+    document.getElementById("modal-pin").classList.add("hidden");
+    await continueAppLoad(); // Doğrulama başarılıysa uygulamayı yükle
+  } catch (err) {
+    errEl.textContent = err.message;
+    document.getElementById("input-pin").value = "";
+  }
+});
+
+// Klavyede Enter'a basıldığında tetiklenmesi için
+document.getElementById("input-pin")?.addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("btn-submit-pin").click();
+});
+
+document.getElementById("btn-logout-pin")?.addEventListener("click", async () => {
+  document.getElementById("modal-pin").classList.add("hidden");
+  await logout();
+  showScreen("login");
+});
+
+// ─────────────────────────────────────────────
+// AYARLARDA PİN DEĞİŞTİRME
+// ─────────────────────────────────────────────
+document.getElementById("btn-change-pin")?.addEventListener("click", async () => {
+  const newPin = document.getElementById("input-new-pin").value;
+  const errEl = document.getElementById("settings-pin-error");
+  const btn = document.getElementById("btn-change-pin");
+  errEl.textContent = "";
+
+  if (newPin.length !== 4 || isNaN(newPin)) {
+    return (errEl.textContent = "PIN 4 haneli rakamlardan oluşmalıdır.");
+  }
+
+  try {
+    btn.disabled = true; btn.textContent = "Güncelleniyor...";
+    await setAdminPin(newPin);
+    showToast("Admin PIN güncellendi ✓");
+    document.getElementById("input-new-pin").value = "";
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "PIN'i Güncelle";
+  }
+});
 
 // ─────────────────────────────────────────────
 // YENİ (Madde 1): Rol sınıfı uygula / kaldır
@@ -134,8 +225,17 @@ function showMenuLoadingOverlay(show) {
 function promptPayment(amountText) {
   return new Promise((resolve) => {
     const modal = document.getElementById("modal-payment");
-    document.getElementById("payment-modal-desc").textContent = "Tutar: " + amountText;
+    const desc = document.getElementById("payment-modal-desc");
+    const selectedMethodDiv = document.getElementById("payment-selected-method");
+    const selectedMethodText = document.getElementById("selected-method-text");
+    const confirmBtn = document.getElementById("btn-confirm-payment");
+
+    desc.textContent = "Tutar: " + amountText;
     modal.classList.remove("hidden");
+    selectedMethodDiv.style.display = "none";
+    confirmBtn.style.display = "none";
+
+    let selectedMethod = null;
 
     const btnCash = document.getElementById("btn-pay-cash");
     const btnCard = document.getElementById("btn-pay-card");
@@ -146,11 +246,44 @@ function promptPayment(amountText) {
       btnCash.replaceWith(btnCash.cloneNode(true));
       btnCard.replaceWith(btnCard.cloneNode(true));
       btnClose.replaceWith(btnClose.cloneNode(true));
+      confirmBtn.replaceWith(confirmBtn.cloneNode(true));
     };
 
-    document.getElementById("btn-pay-cash").addEventListener("click", () => { cleanup(); resolve("cash"); });
-    document.getElementById("btn-pay-card").addEventListener("click", () => { cleanup(); resolve("card"); });
-    document.getElementById("modal-payment-close").addEventListener("click", () => { cleanup(); resolve(null); });
+    // Nakit seç
+    btnCash.addEventListener("click", () => {
+      selectedMethod = "cash";
+      selectedMethodText.textContent = "Nakit";
+      selectedMethodDiv.style.display = "block";
+      confirmBtn.style.display = "block";
+      
+      // Renkleri ayarla
+      btnCash.className = "btn btn--primary";
+      btnCard.className = "btn btn--accent";
+    });
+
+    // Kredi Kartı seç
+    btnCard.addEventListener("click", () => {
+      selectedMethod = "card";
+      selectedMethodText.textContent = "Kredi Kartı";
+      selectedMethodDiv.style.display = "block";
+      confirmBtn.style.display = "block";
+      
+      // Renkleri ayarla
+      btnCard.className = "btn btn--primary";
+      btnCash.className = "btn btn--accent";
+    });
+
+    // Onay butonu
+    document.getElementById("btn-confirm-payment").addEventListener("click", () => {
+      cleanup();
+      resolve(selectedMethod);
+    });
+
+    // İptal
+    document.getElementById("modal-payment-close").addEventListener("click", () => {
+      cleanup();
+      resolve(null);
+    });
   });
 }
 // ─────────────────────────────────────────────
@@ -300,9 +433,17 @@ function buildTableCard(tableId, table, isWaiter) {
     priceHtml = `<div class="table-card__price">Boş</div>`;
   }
 
+  let kitchenBadge = "";
+  if (occupied && table.kitchenStatus === "preparing") {
+    kitchenBadge = `<div class="kitchen-status preparing">🍳 Hazırlanıyor</div>`;
+  } else if (occupied && table.kitchenStatus === "ready") {
+    kitchenBadge = `<div class="kitchen-status ready">✅ Hazır</div>`;
+  }
+
   card.innerHTML = `
     <div class="table-card__icon">${occupied ? "🍽️" : "🪑"}</div>
     <div class="table-card__name">${table.name}</div>
+    ${kitchenBadge}
     ${priceHtml}
     ${isAdmin && !occupied
       ? `<button class="btn-icon btn-delete-table" data-id="${tableId}" title="Masayı Sil">✕</button>`
@@ -334,7 +475,6 @@ function buildTableCard(tableId, table, isWaiter) {
   return card;
 }
 
-// YENİ (Madde 1): Masa içerik modalı (garson için — fiyatsız)
 async function openTableContentModal(tableId, tableName) {
   const modal   = document.getElementById("modal-table-content");
   const titleEl = document.getElementById("table-content-title");
@@ -345,7 +485,16 @@ async function openTableContentModal(tableId, tableName) {
   listEl.innerHTML    = `<p style="color:var(--text-3)">Yükleniyor…</p>`;
   modal.classList.remove("hidden");
 
-  const orders = AppState.orders[tableId] || {};
+  // === YENİ: Canlı veri çek ===
+  let orders = {};
+  try {
+    orders = await getTableOrders(tableId);
+  } catch (err) {
+    console.error("Sipariş çekilemedi:", err);
+    listEl.innerHTML = `<p style="color:#e74c3c">Siparişler yüklenemedi.</p>`;
+    return;
+  }
+
   if (Object.keys(orders).length === 0) {
     listEl.innerHTML = `<p style="color:var(--text-3)">Bu masada açık sipariş yok.</p>`;
     return;
@@ -414,6 +563,20 @@ function openTableScreen(tableId, tableName) {
   });
 
   document.getElementById("btn-back").onclick = () => {
+    const orders = AppState.orders[tableId] || {};
+    // Gönderilmemiş ürün var mı kontrol et
+    const hasUnsent = Object.values(orders).some(o => o.quantity > (o.sentQty || 0));
+
+    if (hasUnsent) {
+      const wantToSend = confirm("⚠️ Mutfağa gönderilmemiş siparişleriniz var!\n\nTamam = Mutfağa Gönder\nİptal = Masada Kal (Siparişe Devam Et)");
+      if (wantToSend) {
+        document.getElementById("btn-send-kitchen").click();
+        return; // İşlemin bitmesini bekle
+      } else {
+        return; // Çıkışı iptal et, ekranda kal
+      }
+    }
+
     if (activeTableOrderListener) {
       activeTableOrderListener();
       activeTableOrderListener = null;
@@ -591,58 +754,43 @@ function renderMenu(tableId) {
         if (!noteInput.classList.contains("hidden")) noteInput.focus();
       });
 
-      row.querySelector(".btn-plus").addEventListener("click", async (e) => {
-        if (isOut) return;
-        const btn       = e.target;
-        btn.disabled    = true;
-        
-        // OPTIMISTIC UPDATE: DOM üzerinden sayıyı al (Firebase gecikmesini bekleme)
-        const qtyEl = document.getElementById(`qty-${product.id}`);
-        const currentLocalQty = parseInt(qtyEl?.textContent || "0");
-        if (qtyEl) qtyEl.textContent = String(currentLocalQty + 1);
+ // + Butonu
+row.querySelector(".btn-plus").addEventListener("click", async (e) => {
+  if (isOut) return;
+  const btn = e.target;
+  btn.disabled = true;
 
-        try {
-          const variation = row.querySelector(".inline-var-select")?.value || "";
-          const note      = (row.querySelector(".inline-note-input")?.value || "").trim();
-          // Backend'e lokalde hesapladığımız kesin sayıyı yolluyoruz
-          await addOrderItem(tableId, product, currentLocalQty + 1, { variation, note });
-        } catch (err) {
-          if (qtyEl) qtyEl.textContent = String(currentLocalQty); // Hata varsa geri al
-          showToast("Hata: " + err.message, "error");
-        } finally {
-          btn.disabled = false;
-        }
-      });
+  try {
+    const variation = row.querySelector(".inline-var-select")?.value || "";
+    const note = (row.querySelector(".inline-note-input")?.value || "").trim();
 
-      row.querySelector(".btn-minus").addEventListener("click", async (e) => {
-        const btn   = e.target;
-        const qtyEl = document.getElementById(`qty-${product.id}`);
-        
-        // Ekranda o an yazan güncel sayıyı alıyoruz
-        const currentLocalQty = parseInt(qtyEl?.textContent || "0");
-        
-        // Zaten 0 ise boşuna backend'e istek atıp yormayalım
-        if (currentLocalQty <= 0) return; 
+    // Doğrudan backend'e yeni miktarı gönder (optimistic update kaldırıldı)
+    const currentQty = await getProductQtyInOrder(tableId, product.id, variation, note);
+    await addOrderItem(tableId, product, currentQty + 1, { variation, note });
+  } catch (err) {
+    showToast("Hata: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
 
-        btn.disabled = true;
-        
-        // OPTIMISTIC UPDATE: Ekrandaki sayıyı Firebase'i beklemeden hemen 1 azalt
-        if (qtyEl) qtyEl.textContent = String(currentLocalQty - 1);
+// - Butonu
+row.querySelector(".btn-minus").addEventListener("click", async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
 
-        try {
-          const variation = row.querySelector(".inline-var-select")?.value || "";
-          const note      = (row.querySelector(".inline-note-input")?.value || "").trim();
-          
-          // Backend'e lokalde hesapladığımız kesin sayıyı (eski sayı - 1) gönderiyoruz
-          await addOrderItem(tableId, product, currentLocalQty - 1, { variation, note });
-        } catch (err) {
-          // Eğer Firebase'de bir hata olursa, ekrandaki sayıyı eski haline geri getir
-          if (qtyEl) qtyEl.textContent = String(currentLocalQty); 
-          showToast("Hata: " + err.message, "error");
-        } finally {
-          btn.disabled = false;
-        }
-      });
+  try {
+    const variation = row.querySelector(".inline-var-select")?.value || "";
+    const note = (row.querySelector(".inline-note-input")?.value || "").trim();
+
+    const currentQty = await getProductQtyInOrder(tableId, product.id, variation, note);
+    await addOrderItem(tableId, product, currentQty - 1, { variation, note });
+  } catch (err) {
+    showToast("Hata: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
 
       catEl.appendChild(row);
     });
@@ -656,6 +804,9 @@ function renderMenu(tableId) {
 // ─────────────────────────────────────────────
 // SİPARİŞ LİSTESİ RENDER — Madde 7: Garson direkt düzenleme
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// SİPARİŞ LİSTESİ RENDER — Madde 7: Garson direkt düzenleme
+// ─────────────────────────────────────────────
 function renderOrderList(tableId, orders) {
   const listEl  = document.getElementById("order-list");
   const totalEl = document.getElementById("order-total");
@@ -666,11 +817,19 @@ function renderOrderList(tableId, orders) {
   const isWaiter = AppState.currentUser?.role === "waiter";
   let total = 0;
 
+  // ÇÖZÜM BURADA: Listede ürün olsun ya da olmasın, önce menüdeki 
+  // tüm ürünlerin arayüzdeki sayısını "0" yapıyoruz. 
+  // Eğer siparişte varsa, aşağıdaki döngüde zaten kendi sayısıyla ezilecek.
+  AppState.menuItems.forEach(p => {
+    const qtyEl = document.getElementById(`qty-${p.id}`);
+    if (qtyEl) qtyEl.textContent = "0";
+  });
+
   if (entries.length === 0) {
     listEl.innerHTML    = `<p class="order-empty">Henüz sipariş yok.</p>`;
     totalEl.textContent = formatCurrency(0);
     updateSelectedTotal(orders);
-    return;
+    return; // Artık sıfırlama yapıldığı için güvenle fonksiyondan çıkabiliriz
   }
 
   // partialSelections temizle
@@ -767,17 +926,9 @@ function renderOrderList(tableId, orders) {
 
     listEl.appendChild(row);
 
+    // Siparişte olan ürünlerin arayüzdeki sayısını ezerek güncelliyoruz
     const qtyEl = document.getElementById(`qty-${item.productId}`);
     if (qtyEl) qtyEl.textContent = item.quantity;
-  });
-
-  // Siparişte olmayan ürünlerin qty'sini sıfırla
-  AppState.menuItems.forEach(p => {
-    const inOrder = entries.some(([, item]) => item.productId === p.id);
-    if (!inOrder) {
-      const qtyEl = document.getElementById(`qty-${p.id}`);
-      if (qtyEl) qtyEl.textContent = "0";
-    }
   });
 
   totalEl.textContent = formatCurrency(total);
@@ -884,19 +1035,31 @@ function startNotificationListener() {
   }
 
   activeNotifListener = watchNotifications((notifications) => {
-    const count   = Object.keys(notifications).length;
-    const badge   = document.getElementById("notif-badge");
-    const panel   = document.getElementById("notif-panel-list");
+    const count = Object.keys(notifications).length;
+    const badge = document.getElementById("notif-badge");
+    const panel = document.getElementById("notif-panel-list");
+    const dropdown = document.getElementById("notif-dropdown");
 
-    // YENİ (Madde 8): Yeni bildirim gelince ses çal
+    // Yeni bildirim geldiğinde ses çal
     if (count > lastNotifCount && lastNotifCount >= 0) {
       playNotifSound();
+
+      // Mutfak için: Otomatik dropdown aç (opsiyonel)
+      if (dropdown && count > 0) {
+        dropdown.classList.remove("hidden");
+      }
     }
     lastNotifCount = count;
 
     if (badge) {
       badge.textContent = count;
       badge.classList.toggle("hidden", count === 0);
+      
+      // Yeni bildirim varsa badge'i daha dikkat çekici yap
+      if (count > 0) {
+        badge.style.background = "#e74c3c";
+        badge.style.animation = "pulse 1.5s infinite";
+      }
     }
 
     if (panel) {
@@ -905,36 +1068,44 @@ function startNotificationListener() {
         panel.innerHTML = `<p class="notif-empty">Bekleyen bildirim yok.</p>`;
         return;
       }
+
       Object.entries(notifications)
         .sort((a, b) => (b[1].sentAt || 0) - (a[1].sentAt || 0))
         .forEach(([key, notif]) => {
           const el = document.createElement("div");
           el.className = "notif-item";
-          // YENİ (Madde 6): Varyasyon ve not bilgisini notif panelinde göster
+          
           const itemsText = (notif.items || [])
             .map(i => {
               let t = `${i.qty}× ${i.name}`;
               if (i.variation) t += ` (${i.variation})`;
-              if (i.note)      t += ` — ${i.note}`;
+              if (i.note) t += ` — ${i.note}`;
               return t;
             }).join(", ");
+
           el.innerHTML = `
             <div class="notif-item__header">
-              <strong>${notif.tableName}</strong>
+              <strong>🍳 ${notif.tableName}</strong>
               <span class="notif-item__time">${formatRelativeTime(notif.sentAt)}</span>
             </div>
             <div class="notif-item__items">${itemsText}</div>
-            <button class="btn btn--sm btn--primary notif-ready-btn" data-key="${key}">✓ Hazır</button>
+            <div style="margin-top: 8px;">
+              <button class="btn btn--primary btn--sm notif-ready-btn" data-key="${key}">
+                ✓ Hazır (Mutfağa Bildir)
+              </button>
+            </div>
           `;
+
           el.querySelector(".notif-ready-btn").addEventListener("click", async (e) => {
             e.stopPropagation();
             try {
               await markNotificationReady(key);
-              showToast("Bildirim tamamlandı ✓");
+              showToast("Sipariş hazır olarak işaretlendi ✓");
             } catch (err) {
               showToast(err.message, "error");
             }
           });
+
           panel.appendChild(el);
         });
     }
@@ -984,7 +1155,7 @@ function formatRelativeTime(timestamp) {
 document.getElementById("btn-report")?.addEventListener("click", () => {
   const modal = document.getElementById("modal-report");
   if (modal) {
-    const today = new Date().toISOString().split("T")[0];
+    const today = getBusinessDate();
     document.getElementById("report-date-input").value   = today;
     document.getElementById("report-month-input").value  = today.slice(0, 7);
     document.getElementById("report-type-day").checked   = true;
@@ -1110,10 +1281,10 @@ async function loadMonthlyReport(yearMonth) {
   }
 }
 
-// PDF İndirme — Günlük ve Aylık (Madde 4 & 5)
+// PDF İndirme — İyileştirilmiş Versiyon
 document.getElementById("btn-report-pdf")?.addEventListener("click", async () => {
   const isMonthly = document.getElementById("report-type-month")?.checked;
-  const date    = isMonthly
+  const date = isMonthly
     ? document.getElementById("report-month-input").value
     : document.getElementById("report-date-input").value;
 
@@ -1136,61 +1307,72 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
   const net = summary.grandTotal - expTotal;
 
   const { jsPDF } = window.jspdf;
-  const doc       = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
   showToast("PDF hazırlanıyor…", "warn");
 
+  // Font ayarı (daha güvenli)
   let fontName = "helvetica";
   try {
-    const res    = await fetch("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf");
-    const buffer = await res.arrayBuffer();
-    let binary   = "";
-    new Uint8Array(buffer).forEach(b => (binary += String.fromCharCode(b)));
-    const fontB64 = window.btoa(binary);
-    doc.addFileToVFS("Roboto-Regular.ttf", fontB64);
-    doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
-    doc.setFont("Roboto");
-    fontName = "Roboto";
+    const res = await fetch("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf");
+    if (res.ok) {
+      const buffer = await res.arrayBuffer();
+      let binary = "";
+      new Uint8Array(buffer).forEach(b => (binary += String.fromCharCode(b)));
+      const fontB64 = window.btoa(binary);
+      doc.addFileToVFS("Roboto-Regular.ttf", fontB64);
+      doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+      doc.setFont("Roboto");
+      fontName = "Roboto";
+    }
   } catch (e) {
-    console.warn("Font indirilemedi, varsayılana dönülüyor.");
+    console.warn("Roboto font yüklenemedi, helvetica kullanılıyor.");
   }
 
- // tr() her zaman çalışır: Roboto yüklense bile bazı PDF renderer'lar
-  // özel Türkçe karakterleri bozar; güvenli ASCII dönüşümü yapalım.
-  const tr = (str) => String(str)
-    .replace(/ğ/g,"g").replace(/Ğ/g,"G")
-    .replace(/ü/g,"u").replace(/Ü/g,"U")
-    .replace(/ş/g,"s").replace(/Ş/g,"S")
-    .replace(/ı/g,"i").replace(/İ/g,"I")
-    .replace(/ö/g,"o").replace(/Ö/g,"O")
-    .replace(/ç/g,"c").replace(/Ç/g,"C");
-
+  // Geliştirilmiş Türkçe karakter dönüşümü
+  const tr = (str) => String(str || "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g")
+    .replace(/Ü/g, "U").replace(/ü/g, "u")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ö/g, "O").replace(/ö/g, "o")
+    .replace(/Ç/g, "C").replace(/ç/g, "c");
 
   const title = isMonthly
-    ? tr(`Han Kafem — Aylık Rapor (${date})`)
-    : tr(`Han Kafem — Gün Sonu Raporu`);
+    ? tr(`Han Kafem - Aylik Rapor (${date})`)
+    : tr(`Han Kafem - Gun Sonu Raporu`);
 
-  doc.setFontSize(18); doc.setFont(fontName, "bold");
+  doc.setFontSize(18);
+  doc.setFont(fontName, "bold");
   doc.text(title, 14, 20);
-  doc.setFont(fontName, "normal"); doc.setFontSize(11);
-  doc.text(tr(`Dönem: ${date}`), 14, 30);
-  doc.text(tr(`İşlem Sayısı: ${summary.sessionCount} hesap`), 14, 37);
 
+  doc.setFont(fontName, "normal");
+  doc.setFontSize(11);
+  doc.text(tr(`Donem: ${date}`), 14, 30);
+  doc.text(tr(`Islem Sayisi: ${summary.sessionCount} hesap`), 14, 37);
+
+  // Ürün Tablosu
   const tableData = summary.products.map((p, i) => [
-    i + 1, tr(p.productName), tr(p.category), p.quantity, formatCurrency(p.totalRevenue)
+    i + 1,
+    tr(p.productName),
+    tr(p.category),
+    p.quantity,
+    formatCurrency(p.totalRevenue)
   ]);
 
   doc.autoTable({
-    head: [[tr("#"), tr("Ürün"), tr("Kategori"), tr("Adet"), tr("Ciro")]],
+    head: [[tr("#"), tr("Urun"), tr("Kategori"), tr("Adet"), tr("Ciro")]],
     body: tableData,
     startY: 44,
     theme: "striped",
-    headStyles:    { fillColor: [232, 148, 26], textColor: 15, font: fontName },
-    styles:        { font: fontName, fontSize: 10 },
-    columnStyles:  { 0: { halign: "center" }, 3: { halign: "center" }, 4: { halign: "right" } }
+    headStyles: { fillColor: [232, 148, 26], textColor: 15, font: fontName },
+    styles: { font: fontName, fontSize: 10 },
+    columnStyles: { 0: { halign: "center" }, 3: { halign: "center" }, 4: { halign: "right" } }
   });
-  
-  // ── Gider Detay Tablosu ──────────────────────────────────
+
+  let currentY = doc.lastAutoTable.finalY + 12;
+
+  // Gider Tablosu
   const expTableData = isMonthly
     ? Object.entries(expensesData.byType || {}).map(([type, amount], i) => [
         i + 1, tr(type), formatCurrency(amount)
@@ -1201,40 +1383,51 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
 
   if (expTableData.length > 0) {
     const expHead = isMonthly
-      ? [[tr("#"), tr("Gider Türü"), tr("Tutar")]]
-      : [[tr("#"), tr("Gider Türü"), tr("Not"), tr("Tutar")]];
-    const expCols = isMonthly
-      ? { 0: { halign: "center" }, 2: { halign: "right" } }
-      : { 0: { halign: "center" }, 3: { halign: "right" } };
+      ? [[tr("#"), tr("Gider Turu"), tr("Tutar")]]
+      : [[tr("#"), tr("Gider Turu"), tr("Not"), tr("Tutar")]];
 
-    const expStartY = (doc.lastAutoTable?.finalY || 120) + 10;
-    doc.setFontSize(12); doc.setFont(fontName, "bold");
-    doc.text(tr("--- Gider Detaylari ---"), 14, expStartY);
+    doc.setFontSize(12);
+    doc.setFont(fontName, "bold");
+    doc.text(tr("--- Gider Detaylari ---"), 14, currentY);
+    currentY += 8;
 
     doc.autoTable({
       head: expHead,
       body: expTableData,
-      startY: expStartY + 6,
+      startY: currentY,
       theme: "striped",
-      headStyles:   { fillColor: [180, 60, 60], textColor: 255, font: fontName },
-      styles:       { font: fontName, fontSize: 9 },
-      columnStyles: expCols,
+      headStyles: { fillColor: [180, 60, 60], textColor: 255, font: fontName },
+      styles: { font: fontName, fontSize: 9 },
+      columnStyles: isMonthly 
+        ? { 0: { halign: "center" }, 2: { halign: "right" } }
+        : { 0: { halign: "center" }, 3: { halign: "right" } }
     });
+
+    currentY = doc.lastAutoTable.finalY + 10;
   }
 
-  // YENİ (Madde 5): Rapor alt özeti — Ciro / Gider / Net Gelir
-  const finalY = doc.lastAutoTable?.finalY || 120;
-  doc.setFontSize(12); doc.setFont(fontName, "bold");
-  doc.text(tr("--- Mali Ozet ---"), 14, finalY + 12);
-  doc.setFont(fontName, "normal"); doc.setFontSize(11);
-  doc.text(tr(`CIRO (Toplam Gelir) : ${formatCurrency(summary.grandTotal)}`), 14, finalY + 20);
-  doc.text(tr(`  - Nakit           : ${formatCurrency(summary.cashTotal || 0)}`), 14, finalY + 27);
-  doc.text(tr(`  - Kredi Karti     : ${formatCurrency(summary.cardTotal || 0)}`), 14, finalY + 34);
-  doc.text(tr(`GIDER (Toplam)      : ${formatCurrency(expTotal)}`),           14, finalY + 41);
+  // Mali Özet
+  doc.setFontSize(12);
   doc.setFont(fontName, "bold");
-  doc.text(tr(`NET GELIR           : ${formatCurrency(net)}`),                14, finalY + 49);
+  doc.text(tr("--- Mali Ozet ---"), 14, currentY);
+  currentY += 8;
+
+  doc.setFont(fontName, "normal");
+  doc.setFontSize(11);
+  doc.text(tr(`CIRO (Toplam Gelir) : ${formatCurrency(summary.grandTotal)}`), 14, currentY);
+  currentY += 7;
+  doc.text(tr(`  - Nakit           : ${formatCurrency(summary.cashTotal || 0)}`), 14, currentY);
+  currentY += 7;
+  doc.text(tr(`  - Kredi Karti     : ${formatCurrency(summary.cardTotal || 0)}`), 14, currentY);
+  currentY += 7;
+  doc.text(tr(`GIDER (Toplam)      : ${formatCurrency(expTotal)}`), 14, currentY);
+  currentY += 7;
+
+  doc.setFont(fontName, "bold");
+  doc.text(tr(`NET GELIR           : ${formatCurrency(net)}`), 14, currentY);
+
   doc.save(`hankafem-rapor-${date}.pdf`);
-  showToast("PDF oluşturuldu! ✓");
+  showToast("PDF olusturuldu! ✓");
 });
 
 // ─────────────────────────────────────────────
@@ -1243,7 +1436,7 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
 document.getElementById("btn-expenses")?.addEventListener("click", () => {
   const modal = document.getElementById("modal-expenses");
   if (!modal) return;
-  const today = new Date().toISOString().split("T")[0];
+  const today = getBusinessDate();
   document.getElementById("expense-date-input").value = today;
   modal.classList.remove("hidden");
   loadExpenses(today);
@@ -1342,6 +1535,38 @@ document.getElementById("modal-inventory-close")?.addEventListener("click", () =
 document.getElementById("modal-inventory")?.addEventListener("click", (e) => {
   if (e.target === e.currentTarget)
     document.getElementById("modal-inventory").classList.add("hidden");
+});
+// TOPLU STOK KAYDETME
+document.getElementById("btn-save-all-inventory")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-save-all-inventory");
+  const rows = document.querySelectorAll(".inventory-row");
+  const updatePromises = [];
+
+  rows.forEach(row => {
+    const chk = row.querySelector(".inv-unlimited-chk");
+    const qtyInput = row.querySelector(".inv-qty-input");
+    const productId = chk.dataset.id;
+    
+    const isUnlimited = chk.checked;
+    const newQty = isUnlimited ? null : parseInt(qtyInput.value);
+    
+    // Geçersiz girişleri atla
+    if (!isUnlimited && (isNaN(newQty) || newQty < 0)) return; 
+    
+    updatePromises.push(setInventory(productId, newQty));
+  });
+
+  try {
+    btn.disabled = true;
+    btn.textContent = "Kaydediliyor...";
+    await Promise.all(updatePromises); // Hepsini aynı anda Firebase'e yolla (Çok Hızlıdır)
+    showToast("Tüm stoklar başarıyla güncellendi ✓");
+  } catch (err) {
+    showToast("Hata: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Toplu Kaydet";
+  }
 });
 
 function renderInventoryList() {
@@ -1595,13 +1820,60 @@ themeToggle?.addEventListener("change", (e) => {
   localStorage.setItem("hankafem_theme", isLight ? "light" : "dark");
 });
 
-// app.js'in en altına ekle:
-document.addEventListener("click", (e) => {
-  // Eğer mobildeysek ve order-panel'in üst kısmına (başlığa) tıklandıysa
-  if (window.innerWidth <= 540) {
-    const orderPanel = document.querySelector(".order-panel");
-    if (orderPanel && e.target === orderPanel) {
-      orderPanel.classList.toggle("open");
+// =============================================
+// YENİ: Mobil Bottom Sheet Toggle (Daha Sağlam)
+// =============================================
+function initMobileOrderPanel() {
+  const orderPanel = document.querySelector(".order-panel");
+  const handle = document.getElementById("order-panel-handle");
+  const handleText = document.getElementById("order-panel-handle-text");
+
+  if (!orderPanel || !handle) return;
+
+  const togglePanel = () => {
+    const isOpen = orderPanel.classList.toggle("open");
+    
+    if (handleText) {
+      handleText.textContent = isOpen 
+        ? "Paneli Kapat" 
+        : "Siparişi Gör / Düzenle";
     }
+  };
+
+  // TÜM handle alanına tıklama
+  handle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    togglePanel();
+  });
+
+  // Panel dışına tıklanınca kapat (opsiyonel)
+  document.addEventListener("click", (e) => {
+    if (window.innerWidth > 540) return;
+    if (orderPanel.classList.contains("open") && !orderPanel.contains(e.target)) {
+      orderPanel.classList.remove("open");
+      if (handleText) handleText.textContent = "Siparişi Gör / Düzenle";
+    }
+  });
+}
+
+// Sayfa yüklendiğinde mobil paneli başlat
+document.addEventListener("DOMContentLoaded", () => {
+  initMobileOrderPanel();
+});
+
+// TAM EKRAN (FULLSCREEN) YÖNETİMİ
+document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
+  const docEl = document.documentElement;
+  
+  if (!document.fullscreenElement) {
+    // Tam ekrana geç
+    if (docEl.requestFullscreen) docEl.requestFullscreen();
+    else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen(); // Safari
+    else if (docEl.msRequestFullscreen) docEl.msRequestFullscreen(); // IE/Edge
+  } else {
+    // Tam ekrandan çık
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    else if (document.msExitFullscreen) document.msExitFullscreen();
   }
 });

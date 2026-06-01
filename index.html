@@ -26,6 +26,26 @@
   </div>
 
   <!-- ═══════════════════════════════════════
+       ADMİN PİN MODALI
+  ═══════════════════════════════════════ -->
+  <div id="modal-pin" class="modal-overlay hidden" style="z-index: 9999; backdrop-filter: blur(10px);">
+    <div class="modal-card" style="max-width: 320px; text-align: center;">
+      <div class="modal-header" style="justify-content: center; border-bottom: none; margin-bottom: 0;">
+        <h3 class="modal-title" id="pin-modal-title">Admin Girişi</h3>
+      </div>
+      <p id="pin-modal-desc" class="modal-subtitle" style="margin-bottom: 1.5rem;">Devam etmek için 4 haneli PIN kodunuzu girin.</p>
+      
+      <div class="field" style="margin-bottom: 1rem;">
+        <input id="input-pin" type="password" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" style="text-align: center; font-size: 2rem; letter-spacing: .5em; padding: 1rem;" />
+      </div>
+      <p id="pin-error" class="login-error"></p>
+      
+      <button id="btn-submit-pin" class="btn btn--primary btn--full">Onayla</button>
+      <button id="btn-logout-pin" class="btn btn--ghost btn--full" style="margin-top: .5rem;">Giriş Ekranına Dön</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
        GİRİŞ EKRANI
   ═══════════════════════════════════════ -->
   <div id="screen-login" class="screen">
@@ -97,6 +117,7 @@
         <span class="header-title">Han Kafem</span>
       </div>
       <div class="header-right">
+        <button id="btn-fullscreen" class="btn btn--ghost btn--sm" title="Tam Ekran">⛶</button>
         <button id="btn-report"           class="btn btn--accent btn--sm" style="display:none">📊 Rapor</button>
         <!-- YENİ (Madde 5): Giderler butonu -->
         <button id="btn-expenses"         class="btn btn--accent btn--sm" style="display:none">💸 Giderler</button>
@@ -161,7 +182,13 @@
       </aside>
 
       <section class="order-panel">
-        <h2 class="panel-title">Sipariş</h2>
+  <!-- YENİ: Mobil Bottom Sheet Handle -->
+<div id="order-panel-handle" class="order-panel-handle">
+  <div class="order-panel-handle__bar"></div>
+  <span id="order-panel-handle-text">Siparişi Gör / Düzenle</span>
+</div>
+
+  <h2 class="panel-title">Sipariş</h2>        
         <div id="order-list" class="order-list"></div>
 
         <div id="selected-total" class="selected-total hidden"></div>
@@ -338,11 +365,14 @@
   <!-- ═══════════════════════════════════════
        YENİ (Madde 2): Stok Yönetimi Modalı
   ═══════════════════════════════════════ -->
-  <div id="modal-inventory" class="modal-overlay hidden">
+ <div id="modal-inventory" class="modal-overlay hidden">
     <div class="modal-card modal-card--wide">
       <div class="modal-header">
         <h3 class="modal-title">📦 Stok Yönetimi</h3>
-        <button id="modal-inventory-close" class="modal-close-btn">✕</button>
+        <div class="modal-header-actions">
+          <button id="btn-save-all-inventory" class="btn btn--primary btn--sm">Toplu Kaydet</button>
+          <button id="modal-inventory-close" class="modal-close-btn">✕</button>
+        </div>
       </div>
       <p class="modal-subtitle">Ürün stoklarını yönetin. "Sınırsız" işaretlenenler için stok kontrolü yapılmaz.</p>
       <div id="inventory-list" class="inventory-list"></div>
@@ -397,6 +427,18 @@
           </label>
         </div>
       </section>
+      <!-- YENİ: Admin PIN Değiştir -->
+      <section class="settings-section" id="settings-pin-section" style="display:none;">
+        <h4 class="settings-section__title">🔒 Admin PIN Ayarı</h4>
+        <div class="field">
+          <label for="input-new-pin">Yeni PIN (4 Hane)</label>
+          <input id="input-new-pin" type="password" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" />
+        </div>
+        <p id="settings-pin-error" class="login-error"></p>
+        <button id="btn-change-pin" class="btn btn--primary btn--sm" style="margin-top:.5rem;">
+          PIN'i Güncelle
+        </button>
+      </section>
     </div>
   </div>
 
@@ -405,18 +447,32 @@
 
   <script type="module" src="js/app.js"></script>
    <div id="modal-payment" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width: 320px; text-align: center;">
-      <div class="modal-header" style="justify-content: center; margin-bottom: 1rem;">
-        <h3 class="modal-title">Ödeme Yöntemi</h3>
-      </div>
-      <p id="payment-modal-desc" class="modal-subtitle" style="margin-bottom: 1.5rem; font-size: 1rem; color: var(--accent); font-weight: 600;"></p>
-      <div style="display: flex; gap: .75rem; margin-bottom: 1rem;">
-        <button id="btn-pay-cash" class="btn btn--primary" style="flex: 1; padding: 1rem;">💵 Nakit</button>
-        <button id="btn-pay-card" class="btn btn--accent" style="flex: 1; padding: 1rem;">💳 Kredi Kartı</button>
-      </div>
-      <button id="modal-payment-close" class="btn btn--ghost btn--full">İptal Et</button>
+  <div class="modal-card" style="max-width: 320px; text-align: center;">
+    <div class="modal-header" style="justify-content: center; margin-bottom: 1rem;">
+      <h3 class="modal-title">Ödeme Yöntemi</h3>
     </div>
+    
+    <p id="payment-modal-desc" class="modal-subtitle" style="margin-bottom: 1.2rem; font-size: 1rem; color: var(--accent); font-weight: 600;"></p>
+    
+    <!-- Seçim Butonları -->
+    <div style="display: flex; gap: .75rem; margin-bottom: 1.2rem;">
+      <button id="btn-pay-cash" class="btn btn--primary" style="flex: 1; padding: 1rem;">💵 Nakit</button>
+      <button id="btn-pay-card" class="btn btn--accent" style="flex: 1; padding: 1rem;">💳 Kredi Kartı</button>
+    </div>
+
+    <!-- Seçilen Yöntem Gösterimi -->
+    <div id="payment-selected-method" style="margin-bottom: 1rem; font-weight: 600; color: var(--text-1); display: none;">
+      Seçilen: <span id="selected-method-text"></span>
+    </div>
+
+    <!-- Onay Butonu -->
+    <button id="btn-confirm-payment" class="btn btn--primary btn--full" style="margin-bottom: .75rem; display: none;">
+      ✓ Ödemeyi Onayla
+    </button>
+
+    <button id="modal-payment-close" class="btn btn--ghost btn--full">İptal Et</button>
   </div>
+</div>
   
   <script>
     // Günlük/Aylık rapor input görünürlüğü

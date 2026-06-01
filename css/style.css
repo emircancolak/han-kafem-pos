@@ -991,35 +991,9 @@ select:disabled { opacity: .5; cursor: not-allowed; }
     overflow-y: auto;
   }
 
-  /* Kapalıyken üstte gözükecek "Siparişi Gör" tetikleyici bar (Artık kocaman ve turuncu) */
-  .order-panel::before {
-    content: "Siparişi Gör / Düzenle ⌃";
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 75px;
-    width: 100%;
-    background: var(--accent); /* Dikkat çekici arkaplan */
-    color: #0f0c07; /* Koyu metin */
-    font-weight: 700;
-    font-size: 1.2rem;
-    cursor: pointer;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
 
-  /* Açıkken Kapat Butonu */
-  .order-panel.open::before {
-    content: "Paneli Kapat ✕";
-    height: 55px;
-    background: var(--surface-2);
-    color: var(--text-1);
-    border-bottom: 1px solid var(--border);
-  }
 
-  /* Kapalıyken içindeki her şeyi gizle, açıkken göster (Paddingleri içeri verdik) */
-  .order-panel > *:not(::before) {
+.order-panel > *:not(.order-panel-handle) {
     opacity: 0;
     transition: opacity 0.2s;
     pointer-events: none;
@@ -1027,7 +1001,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
     padding-right: 1rem;
   }
 
-  .order-panel.open > *:not(::before) {
+  .order-panel.open > *:not(.order-panel-handle) {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1069,3 +1043,60 @@ select:disabled { opacity: .5; cursor: not-allowed; }
   .order-item__total { min-width: 3.8rem; }
   .menu-item__name  { font-size: .85rem; }
 }
+
+/* ============================================
+   YENİ: Mobil Bottom Sheet Handle (İyileştirilmiş)
+   ============================================ */
+.order-panel-handle {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 4px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 540px) {
+  .order-panel-handle {
+    display: flex;
+  }
+}
+
+.order-panel-handle__bar {
+  width: 40px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 2px;
+  margin-bottom: 6px;
+}
+
+#order-panel-handle-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.order-panel.open .order-panel-handle {
+  background: var(--surface-2);
+}
+
+.order-panel.open #order-panel-handle-text {
+  color: var(--text-1);
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+.kitchen-status {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.kitchen-status.preparing { background: var(--orange-bg); color: var(--orange-text); }
+.kitchen-status.ready { background: var(--green-bg); color: var(--green); animation: pulse 2s infinite; }

@@ -1,10 +1,9 @@
 // ============================================================
 // HAN KAFEM — SERVICE WORKER (sw.js)
 // Cache-first for shell assets, network-first for data
-// YENİ ÖZELLİK: Mutfak Bildirim Sistemi — push notification desteği
 // ============================================================
 
-const CACHE_NAME   = "hankafem-v2";
+const CACHE_NAME   = "hankafem-v4"; // ← Her büyük güncellemede bunu artır (v5, v6...)
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -32,7 +31,7 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
-// Fetch: App shell → cache-first | Dış API → network-first
+// Fetch
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
@@ -44,7 +43,7 @@ self.addEventListener("fetch", (e) => {
     url.hostname.includes("fonts.googleapis.com") ||
     url.hostname.includes("fonts.gstatic.com")
   ) {
-    return; // Varsayılan network davranışı
+    return;
   }
 
   e.respondWith(
@@ -52,10 +51,9 @@ self.addEventListener("fetch", (e) => {
   );
 });
 
-// YENİ ÖZELLİK: Mutfak Bildirim Sistemi — Web Push bildirimi al
+// Push Notification
 self.addEventListener("push", (e) => {
   let data = { title: "Han Kafem", body: "Yeni mutfak bildirimi!" };
-
   try {
     if (e.data) data = e.data.json();
   } catch {}
@@ -76,13 +74,11 @@ self.addEventListener("push", (e) => {
   );
 });
 
-// YENİ ÖZELLİK: Mutfak Bildirim Sistemi — bildirim tıklaması
+// Bildirim tıklama
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-
   if (e.action === "dismiss") return;
 
-  // Uygulamayı öne getir veya aç
   e.waitUntil(
     self.clients.matchAll({ type: "window" }).then(clientList => {
       if (clientList.length > 0) {
@@ -93,8 +89,7 @@ self.addEventListener("notificationclick", (e) => {
   );
 });
 
-// YENİ ÖZELLİK: Mutfak Bildirim Sistemi — uygulama içi mesaj dinleyici
-// app.js'den postMessage ile bildirim tetiklenebilir
+// Mesaj dinleyici (Mutfak + Güncelleme)
 self.addEventListener("message", (e) => {
   if (e.data?.type === "KITCHEN_NOTIFICATION") {
     const { tableName, items } = e.data.payload || {};
@@ -106,5 +101,10 @@ self.addEventListener("message", (e) => {
       tag:     `kitchen-${tableName}`,
       requireInteraction: true
     });
+  }
+
+  // Service Worker güncelleme için
+  if (e.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
   }
 });

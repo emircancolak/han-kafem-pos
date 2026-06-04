@@ -294,6 +294,7 @@
           <span class="report-chip">GİDER: <strong id="report-expense-total">—</strong></span>
           <span class="report-chip">NET: <strong id="report-net">—</strong></span>
           <span class="report-chip"><strong id="report-session-count">—</strong></span>
+          <span class="report-chip" id="report-cash-chip" style="border-color:#27ae60;">KASA NAKİT: <strong id="report-cash-remaining">—</strong></span>
         </div>
       </div>
 
@@ -349,6 +350,17 @@
           <label for="expense-note-input">Not (isteğe bağlı)</label>
           <input id="expense-note-input" type="text" placeholder="Açıklama…" />
         </div>
+
+        <!-- YENİ (Madde 4): Gider Ödeme Yöntemi -->
+        <div class="field">
+          <label>Gider Ödeme Yöntemi</label>
+          <div style="display: flex; gap: .5rem;">
+            <button type="button" id="expense-pay-cash" class="btn btn--ghost btn--sm expense-pay-btn active" data-method="cash" style="flex:1;">💵 Nakit</button>
+            <button type="button" id="expense-pay-card" class="btn btn--ghost btn--sm expense-pay-btn" data-method="card" style="flex:1;">💳 Kredi Kartı</button>
+          </div>
+          <input type="hidden" id="expense-payment-method" value="cash" />
+        </div>
+
         <p id="expense-error" class="login-error"></p>
         <button id="btn-add-expense" class="btn btn--primary btn--sm" style="margin-top:.5rem">+ Gider Ekle</button>
       </div>
@@ -375,6 +387,39 @@
         </div>
       </div>
       <p class="modal-subtitle">Ürün stoklarını yönetin. "Sınırsız" işaretlenenler için stok kontrolü yapılmaz.</p>
+      
+      <!-- YENİ: Admin manuel stok ekleme (kg/adet) -->
+      <div class="inventory-add-form" style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:.75rem; margin-bottom:1rem;">
+        <div style="font-weight:600; color:var(--accent); margin-bottom:.4rem;">+ Yeni Stok Kalemi Ekle (Manuel)</div>
+        <div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:flex-end;">
+          <div style="flex:2; min-width:140px;">
+            <label style="font-size:.7rem;">Ürün Adı</label>
+            <input id="inv-new-name" type="text" placeholder="Örn: Süt 1L veya Un 5kg" style="width:100%;" />
+          </div>
+          <div style="flex:1; min-width:100px;">
+            <label style="font-size:.7rem;">Kategori</label>
+            <input id="inv-new-cat" type="text" placeholder="Hammadde" style="width:100%;" value="Hammadde" />
+          </div>
+          <div style="flex:1; min-width:80px;">
+            <label style="font-size:.7rem;">Birim</label>
+            <select id="inv-new-unit" style="width:100%; padding:.4rem;">
+              <option value="adet">Adet</option>
+              <option value="kg">Kg</option>
+            </select>
+          </div>
+          <div style="flex:1; min-width:80px;">
+            <label style="font-size:.7rem;">Miktar</label>
+            <input id="inv-new-qty" type="number" min="0" step="0.01" placeholder="10" style="width:100%;" />
+          </div>
+          <div style="display:flex; align-items:center; gap:.3rem; padding-bottom:.3rem;">
+            <input type="checkbox" id="inv-new-unlimited" />
+            <label for="inv-new-unlimited" style="font-size:.75rem; cursor:pointer;">Sınırsız</label>
+          </div>
+          <button id="btn-add-inv-item" class="btn btn--primary btn--sm" style="height:36px;">+ Ekle</button>
+        </div>
+        <p id="inv-add-error" style="color:#e74c3c; font-size:.75rem; margin-top:.3rem; min-height:1rem;"></p>
+      </div>
+
       <div id="inventory-list" class="inventory-list"></div>
     </div>
   </div>
@@ -427,6 +472,20 @@
           </label>
         </div>
       </section>
+
+      <!-- YENİ (Madde 5): Mutfak Modu Toggle -->
+      <section class="settings-section">
+        <h4 class="settings-section__title">🍳 Mutfak Modu</h4>
+        <div class="settings-theme-row">
+          <span class="settings-theme-label" id="kitchen-mode-label">Kapalı (Normal görünüm)</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-kitchen-mode" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <p style="font-size: .72rem; color: var(--text-3); margin-top: .25rem;">Aktifken bildirim paneli ekranın yarısını kaplar ve otomatik açılır (mutfak tableti için önerilir).</p>
+      </section>
+
       <!-- YENİ: Admin PIN Değiştir -->
       <section class="settings-section" id="settings-pin-section" style="display:none;">
         <h4 class="settings-section__title">🔒 Admin PIN Ayarı</h4>
@@ -447,7 +506,7 @@
 
   <script type="module" src="js/app.js"></script>
    <div id="modal-payment" class="modal-overlay hidden">
-  <div class="modal-card" style="max-width: 320px; text-align: center;">
+  <div class="modal-card" style="max-width: 440px; text-align: center; padding: 1.5rem 1.25rem;">
     <div class="modal-header" style="justify-content: center; margin-bottom: 1rem;">
       <h3 class="modal-title">Ödeme Yöntemi</h3>
     </div>
@@ -455,9 +514,38 @@
     <p id="payment-modal-desc" class="modal-subtitle" style="margin-bottom: 1.2rem; font-size: 1rem; color: var(--accent); font-weight: 600;"></p>
     
     <!-- Seçim Butonları -->
-    <div style="display: flex; gap: .75rem; margin-bottom: 1.2rem;">
-      <button id="btn-pay-cash" class="btn btn--primary" style="flex: 1; padding: 1rem;">💵 Nakit</button>
-      <button id="btn-pay-card" class="btn btn--accent" style="flex: 1; padding: 1rem;">💳 Kredi Kartı</button>
+    <div style="display: flex; gap: .75rem; margin-bottom: 1.2rem; flex-wrap: wrap;">
+      <button id="btn-pay-cash" class="btn btn--primary" style="flex: 1; min-width: 100px; padding: 1rem;">💵 Nakit</button>
+      <button id="btn-pay-card" class="btn btn--accent" style="flex: 1; min-width: 100px; padding: 1rem;">💳 Kredi Kartı</button>
+      <button id="btn-pay-ikram" class="btn btn--ghost" style="flex: 1; min-width: 100px; padding: 1rem; border-color: #e74c3c; color: #e74c3c;">🎁 İkram</button>
+      <button id="btn-pay-karma" class="btn btn--ghost" style="flex: 1; min-width: 100px; padding: 1rem; border-color: #8e44ad; color: #9b59b6;">💰 Karma</button>
+    </div>
+
+    <!-- İkram Onay Alanı (gizli başlangıçta) -->
+    <div id="ikram-confirm-area" style="display: none; margin-bottom: 1rem; padding: 1rem; background: var(--danger-bg); border: 1px solid #5a1a18; border-radius: 8px;">
+      <p style="color: #e74c3c; font-weight: 600; margin-bottom: .5rem;">⚠️ DİKKAT: Bu masayı İKRAM olarak kapatmak üzeresiniz!</p>
+      <p style="font-size: .85rem; color: var(--text-2); margin-bottom: .75rem;">Ücret ALINMAYACAK ve raporlara/gelir tablosuna YAZILMAYACAK. Emin misiniz?</p>
+      <div style="display: flex; gap: .5rem;">
+        <button id="btn-ikram-confirm-yes" class="btn btn--danger" style="flex:1;">✓ EVET, İKRAM OLSUN</button>
+        <button id="btn-ikram-confirm-no" class="btn btn--ghost" style="flex:1;">✕ Vazgeç</button>
+      </div>
+    </div>
+
+    <!-- Karma (Karışık Ödeme) Alanı -->
+    <div id="karma-form-area" style="display: none; margin-bottom: 1rem; padding: 1rem; background: var(--surface-2); border: 1px solid #8e44ad; border-radius: 8px; text-align: left;">
+      <p style="color: #9b59b6; font-weight: 600; margin-bottom: .5rem; font-size: .9rem;">💰 KARMA ÖDEME — Toplamı bölün</p>
+      <div style="display: flex; gap: .75rem; margin-bottom: .5rem;">
+        <div style="flex:1;">
+          <label style="font-size:.75rem; color:var(--text-2);">Nakit (₺)</label>
+          <input id="karma-cash-input" type="number" step="0.01" min="0" style="width:100%; padding:.5rem; font-size:1.1rem;" placeholder="0.00" />
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:.75rem; color:var(--text-2);">Kredi Kartı (₺)</label>
+          <input id="karma-card-input" type="number" step="0.01" min="0" style="width:100%; padding:.5rem; font-size:1.1rem;" placeholder="0.00" />
+        </div>
+      </div>
+      <p id="karma-error" style="color:#e74c3c; font-size:.75rem; min-height:1rem;"></p>
+      <p style="font-size:.75rem; color:var(--text-3);">Not: Nakit + Kredi Kartı = Toplam tutara eşit olmalı.</p>
     </div>
 
     <!-- Seçilen Yöntem Gösterimi -->
@@ -494,7 +582,7 @@
           .catch(err => console.warn("SW error:", err));
       });
     };
-
+    
    
   </script>
 </body>

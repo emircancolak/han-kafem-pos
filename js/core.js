@@ -935,19 +935,18 @@ export async function sendKitchenNotification(tableId, tableName, orders) {
 
 export async function markNotificationReady(notifKey) {
   const snap = await get(ref(db, `notifications/${notifKey}`));
-  if (snap.exists()) {
-    const data = snap.val();
-    const updates = {};
-    
-    // Bildirimi tamamen silmek yerine "ready" olarak işaretle (garsonlara bildirim için)
-    updates[`notifications/${notifKey}/status`] = "ready";
-    updates[`notifications/${notifKey}/readyAt`] = Date.now();
-    
-    // Masa için kitchenStatus güncelle
-    updates[`tables/${data.tableId}/kitchenStatus`] = "ready";
-    
-    await update(ref(db), updates);
-  }
+  if (!snap.exists()) return;
+
+  const data = snap.val();
+  const updates = {};
+  
+  // Bildirimi tamamen sil (iş bittiği için)
+  updates[`notifications/${notifKey}`] = null;
+  
+  // Masa durumunu "Hazır" olarak güncelle (masa kartında yeşil rozet çıksın)
+  updates[`tables/${data.tableId}/kitchenStatus`] = "ready";
+
+  await update(ref(db), updates);
 }
 
 export function watchNotifications(callback) {

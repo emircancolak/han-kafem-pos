@@ -494,6 +494,13 @@ export async function closeTable(tableId, paymentMethod = "cash") {
   const today   = getBusinessDate();
   const histKey = push(ref(db, `history/${today}`)).key;
 
+  const isIkram = paymentMethod === "ikram" || (paymentMethod && paymentMethod.method === "ikram");
+  let pm = paymentMethod;
+  let breakdown = null;
+  if (paymentMethod && typeof paymentMethod === "object" && paymentMethod.method === "karma") {
+    pm = "karma";
+    breakdown = { cash: paymentMethod.cash, card: paymentMethod.card };
+  }
   const historyEntry = {
     tableName:    table.name,
     tableId,
@@ -501,11 +508,13 @@ export async function closeTable(tableId, paymentMethod = "cash") {
     closedAt:     Date.now(),
     closedBy:     AppState.currentUser.uid,
     closedByName: AppState.currentUser.displayName || AppState.currentUser.email || "İsimsiz Kullanıcı",
-    totalAmount:  +total.toFixed(2),
+    totalAmount:  isIkram ? 0 : +total.toFixed(2),
     itemCount:    Object.keys(orders).length,
     items:        orders,
     paymentType:     "full",
-    paymentMethod:   paymentMethod   // "cash" | "card"
+    paymentMethod:   pm,   // "cash" | "card" | "ikram" | "karma"
+    paymentBreakdown: breakdown,
+    isIkram:         isIkram || false
   };
 
   const updates = {
@@ -571,6 +580,12 @@ export async function paySelectedItems(tableId, selections, paymentMethod = "cas
   const today   = getBusinessDate();
   const histKey = push(ref(db, `history/${today}`)).key;
 
+  let pm = paymentMethod;
+  let breakdown = null;
+  if (paymentMethod && typeof paymentMethod === "object" && paymentMethod.method === "karma") {
+    pm = "karma";
+    breakdown = { cash: paymentMethod.cash, card: paymentMethod.card };
+  }
   const historyEntry = {
     tableName:    table.name,
     tableId,
@@ -582,7 +597,8 @@ export async function paySelectedItems(tableId, selections, paymentMethod = "cas
     itemCount:    Object.keys(paidItems).length,
     items:        paidItems,
     paymentType:    "partial",
-    paymentMethod:  paymentMethod   // "cash" | "card"
+    paymentMethod:  pm,
+    paymentBreakdown: breakdown
   };
 
   updates[`history/${today}/${histKey}`] = historyEntry;
@@ -623,6 +639,7 @@ export async function getDailySalesSummary(date) {
   let grandTotal = 0;
 
   sessions.forEach(session => {
+    if (session.isIkram || session.paymentMethod === "ikram") return; // İkramları cirodan hariç tut (Madde 3)
     grandTotal += session.totalAmount || 0;
     const items = session.items || {};
     Object.values(items).forEach(item => {
@@ -646,8 +663,15 @@ export async function getDailySalesSummary(date) {
 
   let cashTotal = 0, cardTotal = 0;
   sessions.forEach(s => {
-    if (s.paymentMethod === "card") cardTotal += s.totalAmount || 0;
-    else cashTotal += s.totalAmount || 0;
+    if (s.isIkram || s.paymentMethod === "ikram") return;
+    if (s.paymentMethod === "karma" && s.paymentBreakdown) {
+      cashTotal += s.paymentBreakdown.cash || 0;
+      cardTotal += s.paymentBreakdown.card || 0;
+    } else if (s.paymentMethod === "card") {
+      cardTotal += s.totalAmount || 0;
+    } else {
+      cashTotal += s.totalAmount || 0;
+    }
   });
 
   return {
@@ -675,6 +699,7 @@ export async function getMonthlySalesSummary(yearMonth) {
   Object.entries(allHistory).forEach(([date, daySessions]) => {
     if (!date.startsWith(yearMonth)) return;
     Object.values(daySessions).forEach(session => {
+      if (session.isIkram || session.paymentMethod === "ikram") return; // İkram hariç (Madde 3)
       grandTotal += session.totalAmount || 0;
       sessionCount++;
       dailyRevenue[date] = (dailyRevenue[date] || 0) + (session.totalAmount || 0);
@@ -700,8 +725,15 @@ export async function getMonthlySalesSummary(yearMonth) {
   Object.entries(allHistory).forEach(([date, daySessions]) => {
     if (!date.startsWith(yearMonth)) return;
     Object.values(daySessions).forEach(s => {
-      if (s.paymentMethod === "card") cardTotal += s.totalAmount || 0;
-      else cashTotal += s.totalAmount || 0;
+      if (s.isIkram || s.paymentMethod === "ikram") return;
+      if (s.paymentMethod === "karma" && s.paymentBreakdown) {
+        cashTotal += s.paymentBreakdown.cash || 0;
+        cardTotal += s.paymentBreakdown.card || 0;
+      } else if (s.paymentMethod === "card") {
+        cardTotal += s.totalAmount || 0;
+      } else {
+        cashTotal += s.totalAmount || 0;
+      }
     });
   });
 
@@ -735,6 +767,7 @@ export async function addExpense(date, expense) {
     type:      expense.type.trim(),
     amount:    +parseFloat(expense.amount).toFixed(2),
     note:      (expense.note || "").trim(),
+    paymentMethod: expense.paymentMethod || "cash",  // Nakit veya Kredi Kartı (Madde 4)
     createdAt: Date.now(),
     createdBy: AppState.currentUser.uid,
     createdByName: AppState.currentUser.displayName || AppState.currentUser.email,
@@ -769,6 +802,38 @@ export async function getExpensesByMonth(yearMonth) {
   });
 
   return { yearMonth, total: +total.toFixed(2), byType };
+}
+
+/**
+ * Kasa Nakit Özeti (Nakit Giriş - Nakit Gider = Kalan)
+ */
+export async function getCashRegisterSummary(date) {
+  requireRole(["admin", "cashier"]);
+  const history  = await getHistoryByDate(date);
+  const expenses = await getExpensesByDate(date);
+  const sessions = Object.values(history || {});
+
+  let cashIn = 0;
+  sessions.forEach(s => {
+    if (s.isIkram || s.paymentMethod === "ikram") return;
+    if (s.paymentMethod === "karma" && s.paymentBreakdown) {
+      cashIn += s.paymentBreakdown.cash || 0;
+    } else if (s.paymentMethod !== "card") {
+      cashIn += s.totalAmount || 0;
+    }
+  });
+
+  let cashOut = 0;
+  Object.values(expenses || {}).forEach(e => {
+    if ((e.paymentMethod || "cash") === "cash") cashOut += e.amount || 0;
+  });
+
+  return {
+    date,
+    cashIn: +cashIn.toFixed(2),
+    cashOut: +cashOut.toFixed(2),
+    remaining: +(cashIn - cashOut).toFixed(2)
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -873,8 +938,14 @@ export async function markNotificationReady(notifKey) {
   if (snap.exists()) {
     const data = snap.val();
     const updates = {};
-    updates[`notifications/${notifKey}`] = null; // Bildirimi sil
-    updates[`tables/${data.tableId}/kitchenStatus`] = "ready"; // Masayı hazır yap
+    
+    // Bildirimi tamamen silmek yerine "ready" olarak işaretle (garsonlara bildirim için)
+    updates[`notifications/${notifKey}/status`] = "ready";
+    updates[`notifications/${notifKey}/readyAt`] = Date.now();
+    
+    // Masa için kitchenStatus güncelle
+    updates[`tables/${data.tableId}/kitchenStatus`] = "ready";
+    
     await update(ref(db), updates);
   }
 }

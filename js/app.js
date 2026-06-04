@@ -13,10 +13,11 @@ import {
   getDailyRevenue, getDailySalesSummary, getMonthlySalesSummary, getHistoryByDate,
   getExpensesByDate, getExpensesByMonth, addExpense, deleteExpense,
   sendKitchenNotification, watchNotifications, markNotificationReady,
+  getCashRegisterSummary,
   getAllUsers, updateUserRole, deleteUserRecord,
   setInventory, getAllInventory, watchInventory,
   formatCurrency, toggleStarredItem, watchStarredItems,
-  getTableOrders,AppState,setAdminPin, verifyAdminPin,getBusinessDate
+  getTableOrders,AppState,setAdminPin, verifyAdminPin,getBusinessDate, db
 } from "./core.js";
 
 // ─────────────────────────────────────────────
@@ -229,58 +230,154 @@ function promptPayment(amountText) {
     const selectedMethodDiv = document.getElementById("payment-selected-method");
     const selectedMethodText = document.getElementById("selected-method-text");
     const confirmBtn = document.getElementById("btn-confirm-payment");
+    const ikramArea = document.getElementById("ikram-confirm-area");
+    const karmaArea = document.getElementById("karma-form-area");
+    const karmaCashInput = document.getElementById("karma-cash-input");
+    const karmaCardInput = document.getElementById("karma-card-input");
+    const karmaError = document.getElementById("karma-error");
 
     desc.textContent = "Tutar: " + amountText;
     modal.classList.remove("hidden");
     selectedMethodDiv.style.display = "none";
     confirmBtn.style.display = "none";
+    if (ikramArea) ikramArea.style.display = "none";
+    if (karmaArea) karmaArea.style.display = "none";
+    if (karmaError) karmaError.textContent = "";
 
-    let selectedMethod = null;
+    let paymentResult = null; // string or {method:'karma', cash, card}
 
     const btnCash = document.getElementById("btn-pay-cash");
     const btnCard = document.getElementById("btn-pay-card");
+    const btnIkram = document.getElementById("btn-pay-ikram");
+    const btnKarma = document.getElementById("btn-pay-karma");
     const btnClose = document.getElementById("modal-payment-close");
 
     const cleanup = () => {
       modal.classList.add("hidden");
+      if (ikramArea) ikramArea.style.display = "none";
+      if (karmaArea) karmaArea.style.display = "none";
+      // Re-clone main buttons to remove accumulated listeners
       btnCash.replaceWith(btnCash.cloneNode(true));
       btnCard.replaceWith(btnCard.cloneNode(true));
+      if (btnIkram) btnIkram.replaceWith(btnIkram.cloneNode(true));
+      if (btnKarma) btnKarma.replaceWith(btnKarma.cloneNode(true));
       btnClose.replaceWith(btnClose.cloneNode(true));
       confirmBtn.replaceWith(confirmBtn.cloneNode(true));
+      
+      // Also reset ikram confirm buttons
+      const yesBtn = document.getElementById("btn-ikram-confirm-yes");
+      const noBtn = document.getElementById("btn-ikram-confirm-no");
+      if (yesBtn) yesBtn.replaceWith(yesBtn.cloneNode(true));
+      if (noBtn) noBtn.replaceWith(noBtn.cloneNode(true));
     };
 
     // Nakit seç
     btnCash.addEventListener("click", () => {
-      selectedMethod = "cash";
+      paymentResult = "cash";
       selectedMethodText.textContent = "Nakit";
       selectedMethodDiv.style.display = "block";
       confirmBtn.style.display = "block";
+      if (ikramArea) ikramArea.style.display = "none";
+      if (karmaArea) karmaArea.style.display = "none";
       
-      // Renkleri ayarla
       btnCash.className = "btn btn--primary";
       btnCard.className = "btn btn--accent";
+      if (btnIkram) btnIkram.className = "btn btn--ghost";
+      if (btnKarma) btnKarma.className = "btn btn--ghost";
     });
 
     // Kredi Kartı seç
     btnCard.addEventListener("click", () => {
-      selectedMethod = "card";
+      paymentResult = "card";
       selectedMethodText.textContent = "Kredi Kartı";
       selectedMethodDiv.style.display = "block";
       confirmBtn.style.display = "block";
+      if (ikramArea) ikramArea.style.display = "none";
+      if (karmaArea) karmaArea.style.display = "none";
       
-      // Renkleri ayarla
       btnCard.className = "btn btn--primary";
       btnCash.className = "btn btn--accent";
+      if (btnIkram) btnIkram.className = "btn btn--ghost";
+      if (btnKarma) btnKarma.className = "btn btn--ghost";
     });
 
-    // Onay butonu
-    document.getElementById("btn-confirm-payment").addEventListener("click", () => {
-      cleanup();
-      resolve(selectedMethod);
+    // İkram butonu → Onay ekranı göster
+    if (btnIkram) {
+      btnIkram.addEventListener("click", () => {
+        selectedMethodDiv.style.display = "none";
+        confirmBtn.style.display = "none";
+        if (ikramArea) ikramArea.style.display = "block";
+        if (karmaArea) karmaArea.style.display = "none";
+        
+        btnCash.className = "btn btn--ghost";
+        btnCard.className = "btn btn--ghost";
+        if (btnIkram) btnIkram.className = "btn btn--danger";
+        if (btnKarma) btnKarma.className = "btn btn--ghost";
+      });
+    }
+
+    // Karma butonu → Form göster
+    if (btnKarma) {
+      btnKarma.addEventListener("click", () => {
+        selectedMethodDiv.style.display = "none";
+        confirmBtn.style.display = "block";
+        if (ikramArea) ikramArea.style.display = "none";
+        if (karmaArea) karmaArea.style.display = "block";
+        if (karmaCashInput) karmaCashInput.value = "";
+        if (karmaCardInput) karmaCardInput.value = "";
+        if (karmaError) karmaError.textContent = "";
+        
+        paymentResult = "karma";
+        
+        btnCash.className = "btn btn--ghost";
+        btnCard.className = "btn btn--ghost";
+        if (btnIkram) btnIkram.className = "btn btn--ghost";
+        btnKarma.className = "btn btn--primary";
+      });
+    }
+
+    // İkram EVET onayı
+    const btnIkramYes = document.getElementById("btn-ikram-confirm-yes");
+    if (btnIkramYes) {
+      btnIkramYes.addEventListener("click", () => {
+        cleanup();
+        resolve("ikram");
+      });
+    }
+
+    // İkram HAYIR / vazgeç
+    const btnIkramNo = document.getElementById("btn-ikram-confirm-no");
+    if (btnIkramNo) {
+      btnIkramNo.addEventListener("click", () => {
+        if (ikramArea) ikramArea.style.display = "none";
+        btnCash.className = "btn btn--primary";
+        btnCard.className = "btn btn--accent";
+        if (btnIkram) btnIkram.className = "btn btn--ghost";
+        if (btnKarma) btnKarma.className = "btn btn--ghost";
+      });
+    }
+
+    // Onay butonu — nakit/kart/ikram/karma için
+    confirmBtn.addEventListener("click", () => {
+      if (paymentResult === "karma") {
+        const cash = parseFloat(karmaCashInput?.value || "0") || 0;
+        const card = parseFloat(karmaCardInput?.value || "0") || 0;
+        const totalNum = parseFloat(amountText.replace(/[^0-9.,]/g, "").replace(",", ".")) || 0;
+        
+        if (Math.abs((cash + card) - totalNum) > 0.05) {
+          if (karmaError) karmaError.textContent = `Hata: Nakit + Kart = ${formatCurrency(cash + card)} olmalı (Toplam ${formatCurrency(totalNum)})`;
+          return; // modalı kapatma, hata göster
+        }
+        cleanup();
+        resolve({ method: "karma", cash: +cash.toFixed(2), card: +card.toFixed(2) });
+      } else {
+        cleanup();
+        resolve(paymentResult);
+      }
     });
 
-    // İptal
-    document.getElementById("modal-payment-close").addEventListener("click", () => {
+    // İptal (modal kapat)
+    btnClose.addEventListener("click", () => {
       cleanup();
       resolve(null);
     });
@@ -400,17 +497,17 @@ function startDashboard() {
   const staffBtn  = document.getElementById("btn-staff-management");
   if (staffBtn) staffBtn.style.display = isAdmin ? "inline-flex" : "none";
 
-  // YENİ (Madde 5): Giderler butonu — admin ve cashier görür
+  // YENİ (Madde 2+5): Giderler ve Stok — admin + cashier girebilsin
+  const canManageFinance = ["admin", "cashier"].includes(AppState.currentUser?.role);
   const expBtn    = document.getElementById("btn-expenses");
-  const canReport = ["admin", "cashier"].includes(AppState.currentUser?.role);
-  if (expBtn) expBtn.style.display = canReport ? "inline-flex" : "none";
+  if (expBtn) expBtn.style.display = canManageFinance ? "inline-flex" : "none";
 
-  const reportBtn = document.getElementById("btn-report");
-  if (reportBtn) reportBtn.style.display = canReport ? "inline-flex" : "none";
-
-  // YENİ (Madde 2): Stok butonu — sadece admin
   const invBtn = document.getElementById("btn-inventory");
-  if (invBtn) invBtn.style.display = isAdmin ? "inline-flex" : "none";
+  if (invBtn) invBtn.style.display = canManageFinance ? "inline-flex" : "none";
+
+  // Rapor sadece admin görsün (kasa göremesin)
+  const reportBtn = document.getElementById("btn-report");
+  if (reportBtn) reportBtn.style.display = isAdmin ? "inline-flex" : "none";
 }
 
 // YENİ (Madde 1): Garson masa kartında fiyat yerine "İçerik Gör" butonu
@@ -632,13 +729,19 @@ function openTableScreen(tableId, tableName) {
       const lines    = selArr.map(({ key, qty }) =>
         `${orders[key]?.productName || key}: ${qty} adet`).join("\n");
      if (!confirm(`Aşağıdaki ürünler için ${formatCurrency(selTotal)} ödensin mi?\n\n${lines}`)) return;
-      const paymentMethod = await promptPayment(formatCurrency(selTotal));
-if (!paymentMethod) return;
+      const paymentResult = await promptPayment(formatCurrency(selTotal));
+if (!paymentResult) return;
       try {
         const selArrSnapshot = [...selArr];
         partialSelections    = {};
-        const result         = await paySelectedItems(tableId, selArrSnapshot, paymentMethod);
-        showToast(`✓ ${formatCurrency(result.selectedTotal)} ödendi (${paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"}). Kalan sipariş masada açık.`);
+        const result         = await paySelectedItems(tableId, selArrSnapshot, paymentResult);
+        let payLabel = "Nakit";
+        if (paymentResult === "ikram") payLabel = "İkram";
+        else if (paymentResult === "card") payLabel = "Kredi Kartı";
+        else if (paymentResult && typeof paymentResult === "object" && paymentResult.method === "karma") {
+          payLabel = `Karma (₺${paymentResult.cash} Nakit + ₺${paymentResult.card} Kart)`;
+        }
+        showToast(`✓ ${formatCurrency(result.selectedTotal)} ödendi (${payLabel}). Kalan sipariş masada açık.`);
       } catch (err) {
         showToast(err.message, "error");
       }
@@ -649,11 +752,18 @@ if (!paymentMethod) return;
     closeBtn.onclick = async () => {
       if (!confirm(`"${tableName}" masasını kapatmak ve hesabı almak istiyor musunuz?`)) return;
       const totalAmount = Object.values(AppState.orders[tableId] || {}).reduce((sum, i) => sum + (i.totalPrice || 0), 0);
-const paymentMethod = await promptPayment(formatCurrency(totalAmount));
-if (!paymentMethod) return;
+const paymentResult = await promptPayment(formatCurrency(totalAmount));
+if (!paymentResult) return;
       try {
-        const summary = await closeTable(tableId, paymentMethod);
-        showToast(`✓ Hesap alındı: ${formatCurrency(summary.totalAmount)} (${paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"})`);
+        const summary = await closeTable(tableId, paymentResult);
+        if (paymentResult === "ikram") {
+          showToast(`🎁 Masa ikram olarak kapatıldı (ücret alınmadı).`);
+        } else if (paymentResult && typeof paymentResult === "object" && paymentResult.method === "karma") {
+          showToast(`✓ Hesap alındı: ${formatCurrency(summary.totalAmount)} (Karma: ₺${paymentResult.cash} Nakit + ₺${paymentResult.card} Kart)`);
+        } else {
+          const methodLabel = paymentResult === "cash" ? "Nakit" : "Kredi Kartı";
+          showToast(`✓ Hesap alındı: ${formatCurrency(summary.totalAmount)} (${methodLabel})`);
+        }
         if (activeTableOrderListener) {
           activeTableOrderListener();
           activeTableOrderListener = null;
@@ -1040,12 +1150,27 @@ function startNotificationListener() {
     const panel = document.getElementById("notif-panel-list");
     const dropdown = document.getElementById("notif-dropdown");
 
+    const isWaiter = AppState.currentUser?.role === "waiter";
+
+    // === YENİ: Garsonlara "Hazır" bildirimi (mutfak hazır dediğinde) ===
+    Object.values(notifications).forEach(notif => {
+      if (notif.status === "ready" && isWaiter) {
+        // Garsona özel toast + ses
+        showToast(`🍳 ${notif.tableName} siparişi HAZIR!`, "success");
+        playNotifSound();
+        
+        // Bir kere gösterilsin diye status'u temizle (opsiyonel, istersen kaldır)
+        // notif.status = "done"; 
+      }
+    });
+
     // Yeni bildirim geldiğinde ses çal
     if (count > lastNotifCount && lastNotifCount >= 0) {
       playNotifSound();
 
-      // Mutfak için: Otomatik dropdown aç (opsiyonel)
-      if (dropdown && count > 0) {
+      // Sadece Mutfak Modu aktifken otomatik dropdown aç (Madde 1 + 5)
+      const isKitchenMode = document.body.classList.contains("kitchen-mode");
+      if (dropdown && count > 0 && isKitchenMode) {
         dropdown.classList.remove("hidden");
       }
     }
@@ -1083,6 +1208,8 @@ function startNotificationListener() {
               return t;
             }).join(", ");
 
+          const isReady = notif.status === "ready";
+
           el.innerHTML = `
             <div class="notif-item__header">
               <strong>🍳 ${notif.tableName}</strong>
@@ -1090,21 +1217,26 @@ function startNotificationListener() {
             </div>
             <div class="notif-item__items">${itemsText}</div>
             <div style="margin-top: 8px;">
-              <button class="btn btn--primary btn--sm notif-ready-btn" data-key="${key}">
-                ✓ Hazır (Mutfağa Bildir)
-              </button>
+              ${isReady 
+                ? `<span class="notif-ready-badge">✅ HAZIR - Garsona Bildirildi</span>` 
+                : `<button class="btn btn--primary btn--sm notif-ready-btn" data-key="${key}">
+                    ✓ Hazır (Mutfağa Bildir)
+                  </button>`
+              }
             </div>
           `;
 
-          el.querySelector(".notif-ready-btn").addEventListener("click", async (e) => {
-            e.stopPropagation();
-            try {
-              await markNotificationReady(key);
-              showToast("Sipariş hazır olarak işaretlendi ✓");
-            } catch (err) {
-              showToast(err.message, "error");
-            }
-          });
+          if (!isReady) {
+            el.querySelector(".notif-ready-btn").addEventListener("click", async (e) => {
+              e.stopPropagation();
+              try {
+                await markNotificationReady(key);
+                showToast("Sipariş hazır olarak işaretlendi ✓");
+              } catch (err) {
+                showToast(err.message, "error");
+              }
+            });
+          }
 
           panel.appendChild(el);
         });
@@ -1214,6 +1346,19 @@ async function loadDailyReport(date) {
     if (expEl) expEl.textContent = formatCurrency(expTotal);
     if (netEl) netEl.textContent = formatCurrency(net);
 
+    // Kasa Nakit Özeti (sadece günlük için)
+    const cashChip = document.getElementById("report-cash-chip");
+    const cashRemEl = document.getElementById("report-cash-remaining");
+    if (cashRemEl && cashChip) {
+      try {
+        const cashSum = await getCashRegisterSummary(date);
+        cashRemEl.textContent = formatCurrency(cashSum.remaining);
+        cashChip.style.display = "";
+      } catch {
+        cashRemEl.textContent = "—";
+      }
+    }
+
     bodyEl.innerHTML = "";
     if (summary.products.length === 0) {
       bodyEl.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-3)">Bu tarihte kayıt yok.</td></tr>`;
@@ -1258,6 +1403,10 @@ async function loadMonthlyReport(yearMonth) {
     countEl.textContent = `${summary.sessionCount} hesap`;
     if (expEl) expEl.textContent = formatCurrency(expTotal);
     if (netEl) netEl.textContent = formatCurrency(net);
+
+    // Aylıkta kasa nakit chip'i gizle (sadece günlük destekli)
+    const cashChipM = document.getElementById("report-cash-chip");
+    if (cashChipM) cashChipM.style.display = "none";
 
     bodyEl.innerHTML = "";
     if (summary.products.length === 0) {
@@ -1305,6 +1454,15 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
     : Object.values(expensesData).reduce((s, e) => s + (e.amount || 0), 0);
 
   const net = summary.grandTotal - expTotal;
+
+  // Kasa Nakit Özeti (sadece günlük PDF için)
+  let cashRemainingText = "";
+  if (!isMonthly) {
+    try {
+      const cs = await getCashRegisterSummary(date);
+      cashRemainingText = `KASA NAKİT KALAN   : ${formatCurrency(cs.remaining)} (Giriş ${formatCurrency(cs.cashIn)} - Gider ${formatCurrency(cs.cashOut)})`;
+    } catch (e) { console.warn("Cash summary PDF error", e); }
+  }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -1425,6 +1583,13 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
 
   doc.setFont(fontName, "bold");
   doc.text(tr(`NET GELIR           : ${formatCurrency(net)}`), 14, currentY);
+  currentY += 7;
+
+  if (cashRemainingText) {
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(10);
+    doc.text(tr(cashRemainingText), 14, currentY);
+  }
 
   doc.save(`hankafem-rapor-${date}.pdf`);
   showToast("PDF olusturuldu! ✓");
@@ -1454,6 +1619,16 @@ document.getElementById("modal-expenses")?.addEventListener("click", (e) => {
     document.getElementById("modal-expenses").classList.add("hidden");
 });
 
+// YENİ (Madde 4): Gider ödeme yöntemi buton toggle
+document.querySelectorAll(".expense-pay-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".expense-pay-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const pmInput = document.getElementById("expense-payment-method");
+    if (pmInput) pmInput.value = btn.dataset.method || "cash";
+  });
+});
+
 document.getElementById("btn-add-expense")?.addEventListener("click", async () => {
   const date   = document.getElementById("expense-date-input").value;
   const type   = document.getElementById("expense-type-input").value;
@@ -1462,10 +1637,15 @@ document.getElementById("btn-add-expense")?.addEventListener("click", async () =
   const errEl  = document.getElementById("expense-error");
   if (errEl) errEl.textContent = "";
   try {
-    await addExpense(date, { type, amount: parseFloat(amount), note });
+    const paymentMethod = document.getElementById("expense-payment-method")?.value || "cash";
+    await addExpense(date, { type, amount: parseFloat(amount), note, paymentMethod });
     document.getElementById("expense-type-input").value   = "";
     document.getElementById("expense-amount-input").value = "";
     document.getElementById("expense-note-input").value   = "";
+    // Reset payment method to default
+    const pmInput = document.getElementById("expense-payment-method");
+    if (pmInput) pmInput.value = "cash";
+    document.querySelectorAll(".expense-pay-btn").forEach(b => b.classList.toggle("active", b.dataset.method === "cash"));
     showToast("Gider kaydedildi ✓");
     loadExpenses(date);
   } catch (err) {
@@ -1527,6 +1707,47 @@ document.getElementById("btn-inventory")?.addEventListener("click", () => {
   if (!modal) return;
   modal.classList.remove("hidden");
   renderInventoryList();
+});
+
+// YENİ: Manuel stok ekleme (kg/adet destekli)
+document.getElementById("btn-add-inv-item")?.addEventListener("click", async () => {
+  const name = document.getElementById("inv-new-name")?.value.trim();
+  const cat = document.getElementById("inv-new-cat")?.value.trim() || "Diğer";
+  const unit = document.getElementById("inv-new-unit")?.value || "adet";
+  const qtyVal = document.getElementById("inv-new-qty")?.value;
+  const unlimited = document.getElementById("inv-new-unlimited")?.checked;
+  const errEl = document.getElementById("inv-add-error");
+  if (errEl) errEl.textContent = "";
+
+  if (!name) {
+    if (errEl) errEl.textContent = "Ürün adı zorunlu.";
+    return;
+  }
+  const qty = unlimited ? null : (parseFloat(qtyVal) || 0);
+
+  try {
+    const customId = `custom_${Date.now()}`;
+    // Doğrudan inventory'ye yaz (setInventory basit tuttuğu için)
+    const { set, ref: dbRef } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js");
+    await set(dbRef(db, `inventory/${customId}`), {
+      name,
+      category: cat,
+      unit,
+      quantity: unlimited ? null : qty,
+      unlimited: !!unlimited,
+      updatedAt: Date.now(),
+      updatedBy: AppState.currentUser?.uid || "admin",
+      isCustom: true
+    });
+    showToast(`${name} stoklara eklendi ✓`);
+    // Form temizle
+    document.getElementById("inv-new-name").value = "";
+    document.getElementById("inv-new-qty").value = "";
+    renderInventoryList(); // Yeniden çiz
+  } catch (err) {
+    if (errEl) errEl.textContent = err.message;
+    else showToast(err.message, "error");
+  }
 });
 
 document.getElementById("modal-inventory-close")?.addEventListener("click", () => {
@@ -1821,6 +2042,39 @@ themeToggle?.addEventListener("change", (e) => {
 });
 
 // =============================================
+// YENİ (Madde 5): Mutfak Modu Toggle + Büyük Bildirim Paneli
+// =============================================
+const kitchenToggle = document.getElementById("toggle-kitchen-mode");
+const kitchenLabel  = document.getElementById("kitchen-mode-label");
+
+function applyKitchenMode(isActive) {
+  if (isActive) {
+    document.body.classList.add("kitchen-mode");
+    if (kitchenLabel) kitchenLabel.textContent = "Aktif (Büyük Panel)";
+  } else {
+    document.body.classList.remove("kitchen-mode");
+    if (kitchenLabel) kitchenLabel.textContent = "Kapalı (Normal görünüm)";
+  }
+}
+
+const savedKitchen = localStorage.getItem("hankafem_kitchen_mode") === "true";
+if (kitchenToggle) kitchenToggle.checked = savedKitchen;
+applyKitchenMode(savedKitchen);
+
+// When toggled in settings
+kitchenToggle?.addEventListener("change", (e) => {
+  const isActive = e.target.checked;
+  applyKitchenMode(isActive);
+  localStorage.setItem("hankafem_kitchen_mode", isActive ? "true" : "false");
+  
+  // Kitchen mode açılırsa dropdown'u hemen göster (kullanışlılık)
+  if (isActive) {
+    const dropdown = document.getElementById("notif-dropdown");
+    if (dropdown) dropdown.classList.remove("hidden");
+  }
+});
+
+// =============================================
 // YENİ: Mobil Bottom Sheet Toggle (Daha Sağlam)
 // =============================================
 function initMobileOrderPanel() {
@@ -1876,4 +2130,60 @@ document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
     else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     else if (document.msExitFullscreen) document.msExitFullscreen();
   }
+});
+
+
+// =============================================
+// YENİ: Service Worker Otomatik Güncelleme Sistemi
+// (GitHub Pages + Tablet/Telefon cache sorunu çözümü)
+// =============================================
+function checkForUpdate() {
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.register('sw.js').then(registration => {
+    registration.onupdatefound = () => {
+      const installingWorker = registration.installing;
+      if (!installingWorker) return;
+
+      installingWorker.onstatechange = () => {
+        if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          showUpdateAvailableToast(registration);
+        }
+      };
+    };
+  }).catch(err => {
+    console.warn("SW güncelleme kontrolü başarısız:", err);
+  });
+}
+
+function showUpdateAvailableToast(registration) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = 'toast toast--update';
+  toast.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <span style="flex:1;">🚀 Yeni sürüm mevcut!</span>
+      <button id="btn-update-app" class="btn btn--primary btn--sm" style="white-space:nowrap;">Şimdi Güncelle</button>
+    </div>
+  `;
+  container.appendChild(toast);
+
+  document.getElementById('btn-update-app').onclick = () => {
+    toast.remove();
+    
+    if (registration.waiting) {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+    
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  };
+}
+
+// Otomatik kontrolü başlat
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(checkForUpdate, 1500);
 });

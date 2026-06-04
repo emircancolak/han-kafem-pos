@@ -1100,3 +1100,67 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 }
 .kitchen-status.preparing { background: var(--orange-bg); color: var(--orange-text); }
 .kitchen-status.ready { background: var(--green-bg); color: var(--green); animation: pulse 2s infinite; }
+
+/* ════════════════════════════════════════════════
+   YENİ (Madde 5): Mutfak Modu — Büyük Bildirim Paneli
+   ════════════════════════════════════════════════ */
+body.kitchen-mode .notif-dropdown {
+  position: fixed !important;
+  top: 70px !important;
+  right: 15px !important;
+  width: 58vw !important;
+  max-width: 620px;
+  height: 72vh;
+  max-height: none;
+  border: 3px solid var(--accent);
+  box-shadow: 0 12px 50px rgba(0,0,0,0.7);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+}
+
+body.kitchen-mode .notif-panel-list {
+  flex: 1;
+  max-height: none !important;
+  overflow-y: auto;
+}
+
+body.kitchen-mode .notif-item {
+  padding: 1rem 1.25rem;
+  font-size: 1rem;
+}
+
+.notif-ready-badge {
+  display: inline-block;
+  background: var(--green-bg);
+  color: var(--green-text);
+  font-weight: 700;
+  font-size: .82rem;
+  padding: .35rem .75rem;
+  border-radius: 20px;
+  border: 1px solid var(--green);
+}
+
+body.kitchen-mode .notif-dropdown__header {
+  font-size: .95rem;
+  padding: .85rem 1.25rem;
+}
+
+/* Portrait / small screen fix for kitchen mode notif (overflow fix) */
+@media (max-width: 600px) {
+  body.kitchen-mode .notif-dropdown {
+    width: 94vw !important;
+    right: 3vw !important;
+    max-width: none !important;
+    height: 60vh !important;
+    top: 60px !important;
+  }
+}
+
+/* Gider ödeme butonu aktif hali */
+.expense-pay-btn.active {
+  background: var(--accent) !important;
+  color: #0f0c07 !important;
+  border-color: var(--accent) !important;
+  font-weight: 600;
+}

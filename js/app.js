@@ -1430,7 +1430,6 @@ async function loadMonthlyReport(yearMonth) {
   }
 }
 
-// PDF İndirme — İyileştirilmiş Versiyon
 document.getElementById("btn-report-pdf")?.addEventListener("click", async () => {
   const isMonthly = document.getElementById("report-type-month")?.checked;
   const date = isMonthly
@@ -1455,13 +1454,12 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
 
   const net = summary.grandTotal - expTotal;
 
-  // Kasa Nakit Özeti (sadece günlük PDF için)
   let cashRemainingText = "";
   if (!isMonthly) {
     try {
       const cs = await getCashRegisterSummary(date);
-      cashRemainingText = `KASA NAKİT KALAN   : ${formatCurrency(cs.remaining)} (Giriş ${formatCurrency(cs.cashIn)} - Gider ${formatCurrency(cs.cashOut)})`;
-    } catch (e) { console.warn("Cash summary PDF error", e); }
+      cashRemainingText = `KASA NAKIT KALAN: ${formatCurrency(cs.remaining)}`;
+    } catch (e) {}
   }
 
   const { jsPDF } = window.jspdf;
@@ -1469,25 +1467,8 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
 
   showToast("PDF hazırlanıyor…", "warn");
 
-  // Font ayarı (daha güvenli)
-  let fontName = "helvetica";
-  try {
-    const res = await fetch("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf");
-    if (res.ok) {
-      const buffer = await res.arrayBuffer();
-      let binary = "";
-      new Uint8Array(buffer).forEach(b => (binary += String.fromCharCode(b)));
-      const fontB64 = window.btoa(binary);
-      doc.addFileToVFS("Roboto-Regular.ttf", fontB64);
-      doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
-      doc.setFont("Roboto");
-      fontName = "Roboto";
-    }
-  } catch (e) {
-    console.warn("Roboto font yüklenemedi, helvetica kullanılıyor.");
-  }
+  const fontName = "helvetica";
 
-  // Geliştirilmiş Türkçe karakter dönüşümü
   const tr = (str) => String(str || "")
     .replace(/İ/g, "I").replace(/ı/g, "i")
     .replace(/Ğ/g, "G").replace(/ğ/g, "g")
@@ -1496,12 +1477,12 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
     .replace(/Ö/g, "O").replace(/ö/g, "o")
     .replace(/Ç/g, "C").replace(/ç/g, "c");
 
-  const title = isMonthly
-    ? tr(`Han Kafem - Aylik Rapor (${date})`)
-    : tr(`Han Kafem - Gun Sonu Raporu`);
-
+  // === BAŞLIK ===
   doc.setFontSize(18);
   doc.setFont(fontName, "bold");
+  const title = isMonthly 
+    ? tr(`Han Kafem - Aylik Rapor (${date})`) 
+    : tr(`Han Kafem - Gun Sonu Raporu`);
   doc.text(title, 14, 20);
 
   doc.setFont(fontName, "normal");
@@ -1509,13 +1490,9 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
   doc.text(tr(`Donem: ${date}`), 14, 30);
   doc.text(tr(`Islem Sayisi: ${summary.sessionCount} hesap`), 14, 37);
 
-  // Ürün Tablosu
+  // === ÜRÜN TABLOSU ===
   const tableData = summary.products.map((p, i) => [
-    i + 1,
-    tr(p.productName),
-    tr(p.category),
-    p.quantity,
-    formatCurrency(p.totalRevenue)
+    i + 1, tr(p.productName), tr(p.category), p.quantity, formatCurrency(p.totalRevenue)
   ]);
 
   doc.autoTable({
@@ -1524,25 +1501,26 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
     startY: 44,
     theme: "striped",
     headStyles: { fillColor: [232, 148, 26], textColor: 15, font: fontName },
-    styles: { font: fontName, fontSize: 10 },
+    styles: { font: fontName, fontSize: 9, cellWidth: 'wrap', overflow: 'linebreak' },
     columnStyles: { 0: { halign: "center" }, 3: { halign: "center" }, 4: { halign: "right" } }
   });
 
   let currentY = doc.lastAutoTable.finalY + 12;
 
-  // Gider Tablosu
+  // === GİDER TABLOSU ===
   const expTableData = isMonthly
-    ? Object.entries(expensesData.byType || {}).map(([type, amount], i) => [
-        i + 1, tr(type), formatCurrency(amount)
-      ])
-    : Object.values(expensesData).map((e, i) => [
-        i + 1, tr(e.type), tr(e.note || ""), formatCurrency(e.amount)
-      ]);
+    ? Object.entries(expensesData.byType || {}).map(([type, amount], i) => [i + 1, tr(type), formatCurrency(amount)])
+    : Object.values(expensesData).map((e, i) => [i + 1, tr(e.type), tr(e.note || ""), formatCurrency(e.amount)]);
 
   if (expTableData.length > 0) {
-    const expHead = isMonthly
-      ? [[tr("#"), tr("Gider Turu"), tr("Tutar")]]
+    const expHead = isMonthly 
+      ? [[tr("#"), tr("Gider Turu"), tr("Tutar")]] 
       : [[tr("#"), tr("Gider Turu"), tr("Not"), tr("Tutar")]];
+
+    if (currentY > 240) {
+      doc.addPage();
+      currentY = 20;
+    }
 
     doc.setFontSize(12);
     doc.setFont(fontName, "bold");
@@ -1555,16 +1533,21 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
       startY: currentY,
       theme: "striped",
       headStyles: { fillColor: [180, 60, 60], textColor: 255, font: fontName },
-      styles: { font: fontName, fontSize: 9 },
+      styles: { font: fontName, fontSize: 9, cellWidth: 'wrap', overflow: 'linebreak' },
       columnStyles: isMonthly 
-        ? { 0: { halign: "center" }, 2: { halign: "right" } }
+        ? { 0: { halign: "center" }, 2: { halign: "right" } } 
         : { 0: { halign: "center" }, 3: { halign: "right" } }
     });
 
     currentY = doc.lastAutoTable.finalY + 10;
   }
 
-  // Mali Özet
+  // === MALİ ÖZET ===
+  if (currentY > 235) {
+    doc.addPage();
+    currentY = 20;
+  }
+
   doc.setFontSize(12);
   doc.setFont(fontName, "bold");
   doc.text(tr("--- Mali Ozet ---"), 14, currentY);
@@ -1572,20 +1555,40 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
 
   doc.setFont(fontName, "normal");
   doc.setFontSize(11);
-  doc.text(tr(`CIRO (Toplam Gelir) : ${formatCurrency(summary.grandTotal)}`), 14, currentY);
-  currentY += 7;
-  doc.text(tr(`  - Nakit           : ${formatCurrency(summary.cashTotal || 0)}`), 14, currentY);
-  currentY += 7;
-  doc.text(tr(`  - Kredi Karti     : ${formatCurrency(summary.cardTotal || 0)}`), 14, currentY);
-  currentY += 7;
-  doc.text(tr(`GIDER (Toplam)      : ${formatCurrency(expTotal)}`), 14, currentY);
-  currentY += 7;
+
+  const maliLines = [
+    tr(`CIRO (Toplam Gelir) : ${formatCurrency(summary.grandTotal)}`),
+    tr(`  - Nakit           : ${formatCurrency(summary.cashTotal || 0)}`),
+    tr(`  - Kredi Karti     : ${formatCurrency(summary.cardTotal || 0)}`),
+    tr(`GIDER (Toplam)      : ${formatCurrency(expTotal)}`),
+  ];
+
+  maliLines.forEach(line => {
+    if (currentY > 265) {
+      doc.addPage();
+      currentY = 20;
+    }
+    doc.text(line, 14, currentY);
+    currentY += 7;
+  });
+
+  // === NET GELİR (En kritik kısım) ===
+  if (currentY > 260) {
+    doc.addPage();
+    currentY = 20;
+  }
 
   doc.setFont(fontName, "bold");
+  doc.setFontSize(12);
   doc.text(tr(`NET GELIR           : ${formatCurrency(net)}`), 14, currentY);
-  currentY += 7;
+  currentY += 10;
 
+  // Kasa Nakit Özeti
   if (cashRemainingText) {
+    if (currentY > 265) {
+      doc.addPage();
+      currentY = 20;
+    }
     doc.setFont(fontName, "normal");
     doc.setFontSize(10);
     doc.text(tr(cashRemainingText), 14, currentY);

@@ -934,19 +934,25 @@ export async function sendKitchenNotification(tableId, tableName, orders) {
 }
 
 export async function markNotificationReady(notifKey) {
-  const snap = await get(ref(db, `notifications/${notifKey}`));
-  if (!snap.exists()) return;
+  try {
+    const snap = await get(ref(db, `notifications/${notifKey}`));
+    if (!snap.exists()) return;
 
-  const data = snap.val();
-  const updates = {};
-  
-  // Bildirimi tamamen sil (iş bittiği için)
-  updates[`notifications/${notifKey}`] = null;
-  
-  // Masa durumunu "Hazır" olarak güncelle (masa kartında yeşil rozet çıksın)
-  updates[`tables/${data.tableId}/kitchenStatus`] = "ready";
+    const data = snap.val();
 
-  await update(ref(db), updates);
+    // Bildirimi sil (en güvenli yöntem)
+    await remove(ref(db, `notifications/${notifKey}`));
+
+    // Masa durumunu "ready" yap
+    if (data.tableId) {
+      await update(ref(db, `tables/${data.tableId}`), {
+        kitchenStatus: "ready"
+      });
+    }
+  } catch (err) {
+    console.error("Bildirim silme hatası:", err);
+    throw new Error("Bildirim silinemedi: " + err.message);
+  }
 }
 
 export function watchNotifications(callback) {

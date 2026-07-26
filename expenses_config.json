@@ -1,0 +1,16 @@
+{
+  "expenseTypes": [
+    "Maaş",
+    "Elektrik",
+    "Su",
+    "İnternet",
+    "Doğalgaz",
+    "Ham Madde",
+    "Kira",
+    "Bakım / Onarım",
+    "Temizlik",
+    "Nakliye",
+    "Vergi / SGK",
+    "Diğer"
+  ]
+}

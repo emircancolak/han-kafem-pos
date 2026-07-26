@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#1a1208" />
+  <meta name="theme-color" content="#120e0a" />
   <meta name="description" content="Han Kafem - İç Sipariş ve POS Sistemi" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="css/style.css" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -64,7 +66,10 @@
             </div>
             <div class="field">
               <label for="input-password">Şifre</label>
-              <input id="input-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+              <div class="password-input-wrapper">
+                <input id="input-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+                <button type="button" class="btn-toggle-password" data-target="input-password" title="Şifreyi Göster/Gizle" aria-label="Şifreyi Göster/Gizle">👁</button>
+              </div>
             </div>
             <p id="login-error" class="login-error" role="alert"></p>
             <div class="remember-me-row">
@@ -72,6 +77,7 @@
                 <input type="checkbox" id="chk-remember-me" checked />
                 Beni Hatırla
               </label>
+              <button type="button" id="btn-forgot-password" class="btn-link forgot-password-link">Şifremi Unuttum</button>
             </div>
             <button id="btn-login" class="btn btn--primary btn--full">Giriş Yap</button>
           </div>
@@ -87,7 +93,10 @@
             </div>
             <div class="field">
               <label for="input-reg-password">Şifre</label>
-              <input id="input-reg-password" type="password" placeholder="••••••••" autocomplete="new-password" />
+              <div class="password-input-wrapper">
+                <input id="input-reg-password" type="password" placeholder="••••••••" autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="input-reg-password" title="Şifreyi Göster/Gizle" aria-label="Şifreyi Göster/Gizle">👁</button>
+              </div>
             </div>
             <p id="register-error" class="login-error" role="alert"></p>
             <button id="btn-register" class="btn btn--primary btn--full">Kayıt Ol</button>
@@ -107,6 +116,26 @@
   </div>
 
   <!-- ═══════════════════════════════════════
+       YENİ (Madde 1): Şifremi Unuttum Modalı
+  ═══════════════════════════════════════ -->
+  <div id="modal-forgot-password" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 380px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Şifremi Unuttum</h3>
+        <button id="modal-forgot-password-close" class="modal-close-btn">✕</button>
+      </div>
+      <p class="modal-subtitle">Şifre sıfırlama bağlantısının gönderileceği e-posta adresini veya kullanıcı adınızı girin.</p>
+      <div class="field">
+        <label for="input-forgot-email">Kullanıcı Adı / E-posta</label>
+        <input id="input-forgot-email" type="text" placeholder="kullanici_adi veya ornek@eposta.com" autocomplete="username" />
+      </div>
+      <p id="forgot-password-error" class="login-error" role="alert"></p>
+      <p id="forgot-password-success" class="forgot-password-success hidden"></p>
+      <button id="btn-send-reset-email" class="btn btn--primary btn--full">Sıfırlama Bağlantısı Gönder</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
        DASHBOARD
   ═══════════════════════════════════════ -->
   <div id="screen-dashboard" class="screen hidden">
@@ -118,12 +147,17 @@
       </div>
       <div class="header-right">
         <button id="btn-fullscreen" class="btn btn--ghost btn--sm" title="Tam Ekran">⛶</button>
-        <button id="btn-report"           class="btn btn--accent btn--sm" style="display:none">📊 Rapor</button>
+        <!-- YENİ: Metin etiketi ayrı bir span'de — mobilde (≤540px) sadece
+             ikon kalacak şekilde CSS ile gizlenir, böylece admin'in 5 yönetim
+             butonu da yatay kaydırmaya gerek kalmadan ekrana sığar. -->
+        <button id="btn-report"           class="btn btn--accent btn--sm" style="display:none" title="Rapor">📊<span class="btn-label"> Rapor</span></button>
         <!-- YENİ (Madde 5): Giderler butonu -->
-        <button id="btn-expenses"         class="btn btn--accent btn--sm" style="display:none">💸 Giderler</button>
+        <button id="btn-expenses"         class="btn btn--accent btn--sm" style="display:none" title="Giderler">💸<span class="btn-label"> Giderler</span></button>
         <!-- YENİ (Madde 2): Stok butonu -->
-        <button id="btn-inventory"        class="btn btn--accent btn--sm" style="display:none">📦 Stok</button>
-        <button id="btn-staff-management" class="btn btn--accent btn--sm" style="display:none">👥 Personel</button>
+        <button id="btn-inventory"        class="btn btn--accent btn--sm" style="display:none" title="Stok">📦<span class="btn-label"> Stok</span></button>
+        <button id="btn-staff-management" class="btn btn--accent btn--sm" style="display:none" title="Personel">👥<span class="btn-label"> Personel</span></button>
+        <!-- YENİ (Madde 7): İşlem Kayıtları (Log) butonu — sadece admin -->
+        <button id="btn-logs" class="btn btn--accent btn--sm" style="display:none" title="Kayıtlar">🕒<span class="btn-label"> Kayıtlar</span></button>
         <div class="notif-wrapper">
           <button id="btn-notif-toggle" class="btn btn--ghost btn--sm notif-toggle-btn" title="Mutfak Bildirimleri">
             🔔 <span id="notif-badge" class="notif-badge hidden">0</span>
@@ -175,6 +209,12 @@
 
     <div class="table-layout">
       <aside class="menu-panel">
+        <!-- YENİ: Ürün Arama — sadece görsel DOM filtrelemesi yapar (bkz. app.js) -->
+        <div class="menu-search-wrapper">
+          <span class="menu-search-icon" aria-hidden="true">🔍</span>
+          <input type="text" id="menu-search-input" class="menu-search-input" placeholder="Ürün Ara…" autocomplete="off" />
+          <button type="button" id="btn-clear-search" class="btn-clear-search hidden" title="Aramayı Temizle" aria-label="Aramayı Temizle">✕</button>
+        </div>
         <h2 class="panel-title">Menü</h2>
         <div id="menu-list" class="menu-list">
           <p class="loading-text">Menü yükleniyor…</p>
@@ -184,8 +224,12 @@
       <section class="order-panel">
   <!-- YENİ: Mobil Bottom Sheet Handle -->
 <div id="order-panel-handle" class="order-panel-handle">
-  <div class="order-panel-handle__bar"></div>
-  <span id="order-panel-handle-text">Siparişi Gör / Düzenle</span>
+  <div class="order-panel-handle__grip">
+    <div class="order-panel-handle__bar"></div>
+    <span id="order-panel-handle-text">Siparişi Gör / Düzenle</span>
+  </div>
+  <!-- YENİ: Bottom Sheet kapalıyken bile "Mutfağa Gönder" erişimi (bkz. app.js openTableScreen) -->
+  <div id="handle-kitchen-slot" class="handle-kitchen-slot"></div>
 </div>
 
   <h2 class="panel-title">Sipariş</h2>        
@@ -435,6 +479,51 @@
       </div>
       <p class="modal-subtitle">Kullanıcıların yetkilerini değiştirin.</p>
       <div id="staff-list" class="staff-list"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       YENİ (Madde 7): İşlem Kayıtları (Log) Modalı — sadece admin
+  ═══════════════════════════════════════ -->
+  <div id="modal-logs" class="modal-overlay hidden">
+    <div class="modal-card modal-card--wide">
+      <div class="modal-header">
+        <h3 class="modal-title">🕒 İşlem Kayıtları (Log)</h3>
+        <button id="modal-logs-close" class="modal-close-btn">✕</button>
+      </div>
+      <p class="modal-subtitle">Garsonların sepete ekleme/çıkarma işlemlerinin saatlik dökümü ("Mutfağa Gönder" öncesi dahil).</p>
+
+      <div class="log-filters">
+        <div class="field">
+          <label for="log-date-input">Tarih</label>
+          <input type="date" id="log-date-input" />
+        </div>
+        <div class="field">
+          <label for="log-hour-filter">Saat</label>
+          <select id="log-hour-filter">
+            <option value="all">Tüm Saatler</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="log-user-filter">Kullanıcı</label>
+          <select id="log-user-filter">
+            <option value="all">Tüm Kullanıcılar</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="log-table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Saat</th><th>Kullanıcı</th><th>Masa</th><th>Ürün</th><th>Eylem</th><th>Miktar</th>
+            </tr>
+          </thead>
+          <tbody id="log-body">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-3)">Tarih seçin.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 

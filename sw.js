@@ -3,7 +3,7 @@
 // Cache-first for shell assets, network-first for data
 // ============================================================
 
-const CACHE_NAME   = "hankafem-v6"; // ← Her büyük güncellemede bunu artır (v5, v6...)
+const CACHE_NAME   = "hankafem-v7"; // ← Her büyük güncellemede bunu artır (v5, v6, v7...)
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -89,7 +89,7 @@ self.addEventListener("notificationclick", (e) => {
   );
 });
 
-// Mesaj dinleyici (Mutfak + Güncelleme)
+// Mesaj dinleyici (Mutfak + Garson + Güncelleme)
 self.addEventListener("message", (e) => {
   if (e.data?.type === "KITCHEN_NOTIFICATION") {
     const { tableName, items } = e.data.payload || {};
@@ -100,6 +100,20 @@ self.addEventListener("message", (e) => {
       icon:    "/icons/icon-192.png",
       tag:     `kitchen-${tableName}`,
       requireInteraction: true
+    });
+  }
+
+  // YENİ (Madde 5): Mutfak "Hazır" dediğinde garsonun cihazına bildirim
+  if (e.data?.type === "WAITER_NOTIFICATION") {
+    const { tableName } = e.data.payload || {};
+
+    self.registration.showNotification(`✅ ${tableName} siparişi hazır!`, {
+      body:    `${tableName} siparişi mutfakta hazırlandı, servise gidebilirsiniz.`,
+      icon:    "/icons/icon-192.png",
+      badge:   "/icons/icon-192.png",
+      tag:     `waiter-ready-${tableName}`,
+      requireInteraction: true,
+      vibrate: [200, 100, 200]
     });
   }
 

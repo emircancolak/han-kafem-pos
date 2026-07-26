@@ -12,6 +12,7 @@ import {
   signOut,
   onAuthStateChanged,
   updatePassword,
+  sendPasswordResetEmail,
   browserLocalPersistence,
   browserSessionPersistence,
   setPersistence
@@ -103,6 +104,13 @@ export async function register(fullName, username, password) {
   await set(ref(db, `users/${uid}`), userData);
   AppState.currentUser = { uid, ...userData };
   return AppState.currentUser;
+}
+
+// YENİ (Madde 1): Şifremi Unuttum — sıfırlama e-postası gönder
+export async function resetPasswordEmail(usernameOrEmail) {
+  const email = toEmail(usernameOrEmail);
+  await sendPasswordResetEmail(auth, email);
+  return email;
 }
 
 export async function logout() {
@@ -321,6 +329,9 @@ export async function addOrderItem(tableId, product, quantity = 1, opts = {}) {
       }
       await remove(ref(db, `orders/${tableId}/${existingKey}`));
       await recalculateTableTotal(tableId);
+      if (qtyToRestore > 0) {
+        logOrderAction(tableId, AppState.tables[tableId]?.name, product, "silindi", qtyToRestore);
+      }
     }
     return;
   }
@@ -364,6 +375,10 @@ export async function addOrderItem(tableId, product, quantity = 1, opts = {}) {
   }
 
   await recalculateTableTotal(tableId);
+
+  if (delta !== 0) {
+    logOrderAction(tableId, AppState.tables[tableId]?.name, product, delta > 0 ? "eklendi" : "silindi", delta);
+  }
 }
 
 /**
@@ -415,6 +430,10 @@ export async function updateOrderQty(tableId, orderKey, newQty) {
   }
 
   await recalculateTableTotal(tableId);
+
+  if (delta !== 0) {
+    logOrderAction(tableId, AppState.tables[tableId]?.name, item, delta > 0 ? "eklendi" : "silindi", delta);
+  }
 }
 
 export async function removeOrderItem(tableId, orderKey) {
@@ -440,6 +459,10 @@ export async function removeOrderItem(tableId, orderKey) {
 
   await remove(orderRef);
   await recalculateTableTotal(tableId);
+
+  if (qtyToRestore > 0) {
+    logOrderAction(tableId, AppState.tables[tableId]?.name, item, "silindi", qtyToRestore);
+  }
 }
 
 async function recalculateTableTotal(tableId) {
@@ -749,6 +772,46 @@ export async function getMonthlySalesSummary(yearMonth) {
 }
 
 // ─────────────────────────────────────────────
+// YENİ (Madde 4): GİDER TÜRLERİ — expenses_config.json
+// ─────────────────────────────────────────────
+
+/**
+ * Kök dizindeki expenses_config.json dosyasından gider türlerini oku.
+ * Statik bir dosya olduğu için tarayıcıdan doğrudan yazılamaz; kullanıcının
+ * eklediği yeni türler bu yüzden Firebase'deki "expenseTypes" düğümünde
+ * ayrıca saklanır ve datalist bu iki kaynağın birleşimiyle doldurulur.
+ */
+export async function fetchExpenseTypesConfig() {
+  try {
+    const res = await fetch("expenses_config.json", { cache: "no-cache" });
+    if (!res.ok) throw new Error(`expenses_config.json yanıtı: ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data.expenseTypes) ? data.expenseTypes : [];
+  } catch (err) {
+    console.warn("⚠️ expenses_config.json okunamadı:", err);
+    return [];
+  }
+}
+
+export async function getCustomExpenseTypes() {
+  const snap = await get(ref(db, "expenseTypes"));
+  const val = snap.val() || {};
+  return Object.values(val);
+}
+
+/**
+ * Kullanıcı datalist'te olmayan yeni bir gider türü girip kaydettiğinde
+ * bu türü Firebase'e yazarak kalıcı hale getirir (Madde 4: "yazacak" kısmı).
+ */
+export async function addCustomExpenseType(typeName) {
+  requireRole(["admin", "cashier"]);
+  const name = String(typeName || "").trim();
+  if (!name) return;
+  const key = slugify(name);
+  await set(ref(db, `expenseTypes/${key}`), name);
+}
+
+// ─────────────────────────────────────────────
 // YENİ (Madde 5): GİDERLER (MUHASEBE)
 // ─────────────────────────────────────────────
 
@@ -884,6 +947,46 @@ export async function deductInventory(productId, deltaQty) {
   const newQty = Math.max(0, (inv.quantity || 0) - deltaQty);
   await update(ref(db, `inventory/${productId}`), { quantity: newQty, updatedAt: Date.now() });
 } 
+
+// ─────────────────────────────────────────────
+// YENİ (Madde 7): İŞLEM KAYITLARI (LOG)
+// Garson "Mutfağa Gönder"e basmasa dahi, sepete her ekleme/çıkarma
+// anlık olarak buraya kaydedilir. Sadece admin görebilir (bkz. rules).
+// ─────────────────────────────────────────────
+export async function logOrderAction(tableId, tableName, product, action, quantity) {
+  try {
+    const date = getBusinessDate();
+    const logRef = push(ref(db, `logs/${date}`));
+    await set(logRef, {
+      userName:  AppState.currentUser?.displayName || AppState.currentUser?.email || "İsimsiz",
+      userUid:   AppState.currentUser?.uid || null,
+      tableId,
+      tableName: tableName || "-",
+      productName: product?.name || product?.productName || "-",
+      action,          // "eklendi" | "silindi"
+      quantity:  Math.abs(quantity) || 0,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    // Log kaydı başarısız olsa da sipariş akışını bozmasın
+    console.warn("⚠️ İşlem kaydı yazılamadı:", err);
+  }
+}
+
+export async function getLogsByDate(date) {
+  requireRole("admin");
+  const snap = await get(ref(db, `logs/${date}`));
+  return snap.val() || {};
+}
+
+export function watchLogsByDate(date, callback) {
+  const logsRef = ref(db, `logs/${date}`);
+  const unsub   = onValue(logsRef, (snap) => {
+    callback(snap.val() || {});
+  });
+  AppState.listeners.push(unsub);
+  return unsub;
+}
 
 // ─────────────────────────────────────────────
 // Mutfak Bildirim Sistemi

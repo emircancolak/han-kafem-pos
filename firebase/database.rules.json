@@ -1,14 +1,12 @@
 {
   "rules": {
-   "users": {
-    
+    "users": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
-      
       "$uid": {
-      ".read": "auth != null && auth.uid === $uid",
-      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (auth.uid === $uid && !data.exists()))",
-      ".validate": "newData.hasChildren(['email', 'displayName', 'role']) && newData.child('role').val().matches(/^(admin|cashier|waiter|pending)$/)"
-}
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (auth.uid === $uid && !data.exists()))",
+        ".validate": "newData.hasChildren(['email', 'displayName', 'role']) && newData.child('role').val().matches(/^(admin|cashier|waiter|pending)$/)"
+      }
     },
 
     "tables": {
@@ -36,12 +34,34 @@
 
     "notifications": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      ".write": "auth != null && (newData.exists() || root.child('users').child(auth.uid).child('role').val().matches(/^(admin|cashier|waiter)$/))"
     },
 
     "settings": {
       ".read": "auth != null",
       ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "inventory": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val().matches(/^(admin|cashier|waiter)$/)"
+    },
+
+    "expenses": {
+      ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'cashier')",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'cashier')"
+    },
+
+    "logs": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$date": {
+        ".write": "auth != null"
+      }
+    },
+
+    "expenseTypes": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val().matches(/^(admin|cashier)$/)"
     }
   }
 }

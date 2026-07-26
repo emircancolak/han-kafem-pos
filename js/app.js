@@ -5,19 +5,21 @@
 
 import {
   login, logout, register, watchAuthState,
-  changePassword,
+  changePassword, resetPasswordEmail,
   fetchMenu, getMenuByCategory,
   addTable, deleteTable, watchTables, moveTable,
   addOrderItem, removeOrderItem, updateOrderQty, watchTableOrders,
   closeTable, paySelectedItems,
   getDailyRevenue, getDailySalesSummary, getMonthlySalesSummary, getHistoryByDate,
   getExpensesByDate, getExpensesByMonth, addExpense, deleteExpense,
+  fetchExpenseTypesConfig, getCustomExpenseTypes, addCustomExpenseType,
   sendKitchenNotification, watchNotifications, markNotificationReady,
   getCashRegisterSummary,
   getAllUsers, updateUserRole, deleteUserRecord,
   setInventory, getAllInventory, watchInventory,
   formatCurrency, toggleStarredItem, watchStarredItems,
-  getTableOrders,AppState,setAdminPin, verifyAdminPin,getBusinessDate, db
+  getTableOrders,AppState,setAdminPin, verifyAdminPin,getBusinessDate, db,
+  getLogsByDate
 } from "./core.js";
 
 // ─────────────────────────────────────────────
@@ -470,6 +472,80 @@ document.getElementById("btn-register")?.addEventListener("click", async () => {
 });
 
 // ─────────────────────────────────────────────
+// YENİ (Madde 1): ŞİFREMİ UNUTTUM
+// ─────────────────────────────────────────────
+document.getElementById("btn-forgot-password")?.addEventListener("click", () => {
+  const modal   = document.getElementById("modal-forgot-password");
+  const errEl   = document.getElementById("forgot-password-error");
+  const okEl    = document.getElementById("forgot-password-success");
+  const input   = document.getElementById("input-forgot-email");
+  if (!modal) return;
+  if (errEl) errEl.textContent = "";
+  if (okEl)  { okEl.textContent = ""; okEl.classList.add("hidden"); }
+  if (input) input.value = document.getElementById("input-username")?.value.trim() || "";
+  modal.classList.remove("hidden");
+  setTimeout(() => input?.focus(), 100);
+});
+
+document.getElementById("modal-forgot-password-close")?.addEventListener("click", () => {
+  document.getElementById("modal-forgot-password")?.classList.add("hidden");
+});
+document.getElementById("modal-forgot-password")?.addEventListener("click", (e) => {
+  if (e.target === e.currentTarget)
+    document.getElementById("modal-forgot-password").classList.add("hidden");
+});
+
+document.getElementById("btn-send-reset-email")?.addEventListener("click", async () => {
+  const input = document.getElementById("input-forgot-email");
+  const errEl = document.getElementById("forgot-password-error");
+  const okEl  = document.getElementById("forgot-password-success");
+  const btn   = document.getElementById("btn-send-reset-email");
+  const value = input?.value.trim();
+
+  if (errEl) errEl.textContent = "";
+  if (okEl)  { okEl.textContent = ""; okEl.classList.add("hidden"); }
+
+  if (!value) {
+    if (errEl) errEl.textContent = "Lütfen kullanıcı adı veya e-posta girin.";
+    return;
+  }
+
+  try {
+    btn.disabled    = true;
+    btn.textContent = "Gönderiliyor…";
+    const email = await resetPasswordEmail(value);
+    if (okEl) {
+      okEl.textContent = `Şifre sıfırlama bağlantısı ${email} adresine gönderildi. Gelen kutunuzu kontrol edin.`;
+      okEl.classList.remove("hidden");
+    }
+  } catch (err) {
+    if (errEl) errEl.textContent = translateAuthError(err.code || err.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = "Sıfırlama Bağlantısı Gönder";
+  }
+});
+
+document.getElementById("input-forgot-email")?.addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("btn-send-reset-email")?.click();
+});
+
+// ─────────────────────────────────────────────
+// YENİ (Madde 2): ŞİFREYİ GÖSTER / GİZLE
+// ─────────────────────────────────────────────
+document.querySelectorAll(".btn-toggle-password").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const targetId = btn.dataset.target;
+    const input    = document.getElementById(targetId);
+    if (!input) return;
+    const isHidden = input.type === "password";
+    input.type       = isHidden ? "text" : "password";
+    btn.textContent  = isHidden ? "🙈" : "👁";
+    btn.title        = isHidden ? "Şifreyi Gizle" : "Şifreyi Göster";
+  });
+});
+
+// ─────────────────────────────────────────────
 // DASHBOARD — MASA GRID
 // ─────────────────────────────────────────────
 function startDashboard() {
@@ -496,6 +572,10 @@ function startDashboard() {
 
   const staffBtn  = document.getElementById("btn-staff-management");
   if (staffBtn) staffBtn.style.display = isAdmin ? "inline-flex" : "none";
+
+  // YENİ (Madde 7): İşlem Kayıtları (Log) — sadece admin görebilir
+  const logsBtn = document.getElementById("btn-logs");
+  if (logsBtn) logsBtn.style.display = isAdmin ? "inline-flex" : "none";
 
   // YENİ (Madde 2+5): Giderler ve Stok — admin + cashier girebilsin
   const canManageFinance = ["admin", "cashier"].includes(AppState.currentUser?.role);
@@ -689,13 +769,16 @@ function openTableScreen(tableId, tableName) {
   const kitchenBtn = document.getElementById("btn-send-kitchen");
   const mobileSlot = document.getElementById("close-table-mobile-slot");
   const headerRight = document.querySelector("#screen-table .header-right");
+  // YENİ: Mobilde "Mutfağa Gönder" artık Bottom Sheet kapalıyken de erişilebilir
+  // olsun diye handle çubuğunun yanındaki sabit yuvaya taşınıyor (bkz. index.html).
+  const handleKitchenSlot = document.getElementById("handle-kitchen-slot");
 
   if (window.innerWidth <= 540) {
     if (mobileSlot) {
-      if (moveBtn)    mobileSlot.appendChild(moveBtn);
-      if (kitchenBtn) mobileSlot.appendChild(kitchenBtn);
-      if (closeBtn)   mobileSlot.appendChild(closeBtn);
+      if (moveBtn)  mobileSlot.appendChild(moveBtn);
+      if (closeBtn) mobileSlot.appendChild(closeBtn);
     }
+    if (handleKitchenSlot && kitchenBtn) handleKitchenSlot.appendChild(kitchenBtn);
   } else {
     if (headerRight) {
       if (moveBtn)    headerRight.appendChild(moveBtn);
@@ -835,9 +918,11 @@ function renderMenu(tableId) {
             : ""}
           <button class="btn-note" data-id="${product.id}" title="Not ekle">📝</button>
           <input class="inline-note-input hidden" data-id="${product.id}" type="text" placeholder="Not…" maxlength="80" />
-          <button class="btn-qty btn-minus" data-id="${product.id}">−</button>
-          <span class="qty-display" id="qty-${product.id}">0</span>
-          <button class="btn-qty btn-plus"  data-id="${product.id}" ${isOut ? "disabled" : ""}>+</button>
+          <div class="menu-item__stepper">
+            <button class="btn-qty btn-minus" data-id="${product.id}">−</button>
+            <span class="qty-display" id="qty-${product.id}">0</span>
+            <button class="btn-qty btn-plus"  data-id="${product.id}" ${isOut ? "disabled" : ""}>+</button>
+          </div>
         </div>
       `;
 
@@ -907,9 +992,50 @@ row.querySelector(".btn-minus").addEventListener("click", async (e) => {
 
     menuEl.appendChild(catEl);
   });
+
+  // YENİ: Menü her yeniden çizildiğinde (stok/yıldız güncellemesi vb.),
+  // kullanıcının o an aramakta olduğu terim varsa filtreyi yeniden uygula.
+  applyMenuSearchFilter();
 }
 
+// ─────────────────────────────────────────────
+// YENİ: ÜRÜN ARAMA (Garsonlar için) — SADECE görsel DOM filtrelemesi.
+// AppState.menuItems'a veya menü HTML yapısına ASLA dokunmaz; sepet/sipariş
+// mantığı (addOrderItem vb.) kendi ürün ID'siyle çalışmaya devam eder.
+// Arama kutusu temizlendiğinde (term === "") tüm ürünler tekrar görünür olur.
+// ─────────────────────────────────────────────
+function applyMenuSearchFilter() {
+  const input = document.getElementById("menu-search-input");
+  const term = (input?.value || "").trim().toLowerCase();
 
+  document.querySelectorAll("#menu-list .menu-category").forEach((catEl) => {
+    let anyVisible = false;
+    catEl.querySelectorAll(".menu-item").forEach((itemEl) => {
+      const nameEl   = itemEl.querySelector(".menu-item__name");
+      const nameText = (nameEl?.textContent || "").toLowerCase();
+      const matches  = term === "" || nameText.includes(term);
+      itemEl.style.display = matches ? "" : "none";
+      if (matches) anyVisible = true;
+    });
+    // Bir kategorideki tüm ürünler gizlendiyse, kategori başlığını da gizle.
+    catEl.style.display = anyVisible ? "" : "none";
+  });
+
+  // YENİ: "Temizle (X)" butonu sadece kutuda yazı varken görünsün.
+  const clearBtn = document.getElementById("btn-clear-search");
+  if (clearBtn) clearBtn.classList.toggle("hidden", term === "");
+}
+
+document.getElementById("menu-search-input")?.addEventListener("input", applyMenuSearchFilter);
+
+// YENİ: Arama kutusunu tek tıkla temizle
+document.getElementById("btn-clear-search")?.addEventListener("click", () => {
+  const input = document.getElementById("menu-search-input");
+  if (!input) return;
+  input.value = "";
+  applyMenuSearchFilter();
+  input.focus();
+});
 
 // ─────────────────────────────────────────────
 // SİPARİŞ LİSTESİ RENDER — Madde 7: Garson direkt düzenleme
@@ -1152,15 +1278,17 @@ function startNotificationListener() {
 
     const isWaiter = AppState.currentUser?.role === "waiter";
 
-    // === YENİ: Garsonlara "Hazır" bildirimi (mutfak hazır dediğinde) ===
+    // === YENİ (Madde 5): Garsonlara "Hazır" bildirimi (mutfak hazır dediğinde) ===
     Object.values(notifications).forEach(notif => {
       if (notif.status === "ready" && isWaiter) {
         // Garsona özel toast + ses
         showToast(`🍳 ${notif.tableName} siparişi HAZIR!`, "success");
         playNotifSound();
-        
+        // Telefon/tablet üzerinde Service Worker aracılığıyla gerçek bildirim göster
+        notifyWaiterOrderReady(notif.tableName);
+
         // Bir kere gösterilsin diye status'u temizle (opsiyonel, istersen kaldır)
-        // notif.status = "done"; 
+        // notif.status = "done";
       }
     });
 
@@ -1256,6 +1384,20 @@ document.addEventListener("click", (e) => {
     panel.classList.add("hidden");
   }
 });
+
+// YENİ (Madde 5): Mutfak "Hazır" dediğinde garsonun cihazına Service Worker üzerinden bildirim gönder
+async function notifyWaiterOrderReady(tableName) {
+  if (!("serviceWorker" in navigator)) return;
+  if ("Notification" in window && Notification.permission !== "granted") return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if (reg?.active) {
+      reg.active.postMessage({ type: "WAITER_NOTIFICATION", payload: { tableName } });
+    }
+  } catch (err) {
+    console.warn("Garson bildirimi gönderilemedi:", err);
+  }
+}
 
 async function sendBrowserNotification(title, body) {
   if ("Notification" in window && Notification.permission === "granted") {
@@ -1430,6 +1572,36 @@ async function loadMonthlyReport(yearMonth) {
   }
 }
 
+// YENİ (Madde 6): PDF renk paleti — açık (Matcha Latte) / koyu (Espresso) temaya göre
+function getPdfPalette() {
+  const isLight = localStorage.getItem("hankafem_theme") === "light";
+  return isLight
+    ? { // Matcha Latte
+        primary:    [90, 122, 74],
+        primaryDk:  [45, 63, 37],
+        onPrimary:  [255, 255, 255],
+        text:       [44, 31, 14],
+        textMuted:  [107, 87, 64],
+        rowAlt:     [240, 236, 227],
+        border:     [212, 201, 176],
+        danger:     [176, 96, 48],
+        pageBg:     [255, 253, 247],
+        name:       "Matcha Latte",
+      }
+    : { // Koyu Espresso
+        primary:    [232, 148, 26],
+        primaryDk:  [26, 18, 8],
+        onPrimary:  [26, 18, 8],
+        text:       [44, 31, 14],
+        textMuted:  [122, 100, 68],
+        rowAlt:     [250, 242, 226],
+        border:     [224, 205, 165],
+        danger:     [196, 92, 24],
+        pageBg:     [255, 255, 255],
+        name:       "Koyu Espresso",
+      };
+}
+
 document.getElementById("btn-report-pdf")?.addEventListener("click", async () => {
   const isMonthly = document.getElementById("report-type-month")?.checked;
   const date = isMonthly
@@ -1458,16 +1630,20 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
   if (!isMonthly) {
     try {
       const cs = await getCashRegisterSummary(date);
-      cashRemainingText = `KASA NAKIT KALAN: ${formatCurrency(cs.remaining)}`;
+      cashRemainingText = `Kasa Nakit Kalan: ${formatCurrency(cs.remaining)}`;
     } catch (e) {}
   }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW   = doc.internal.pageSize.getWidth();
+  const marginX = 14;
+  const palette = getPdfPalette();
 
   showToast("PDF hazırlanıyor…", "warn");
 
   const fontName = "helvetica";
+  const rgb = (c) => c; // [r,g,b] passthrough — okunabilirlik için
 
   const tr = (str) => String(str || "")
     .replace(/İ/g, "I").replace(/ı/g, "i")
@@ -1477,35 +1653,70 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
     .replace(/Ö/g, "O").replace(/ö/g, "o")
     .replace(/Ç/g, "C").replace(/ç/g, "c");
 
-  // === BAŞLIK ===
-  doc.setFontSize(18);
-  doc.setFont(fontName, "bold");
-  const title = isMonthly 
-    ? tr(`Han Kafem - Aylik Rapor (${date})`) 
-    : tr(`Han Kafem - Gun Sonu Raporu`);
-  doc.text(title, 14, 20);
+  // === ÜST BAŞLIK BANDI ===
+  doc.setFillColor(...rgb(palette.primaryDk));
+  doc.rect(0, 0, pageW, 30, "F");
 
+  doc.setTextColor(...rgb(palette.primary));
+  doc.setFont(fontName, "bold");
+  doc.setFontSize(20);
+  doc.text(tr("☕ Han Kafem"), marginX, 14);
+
+  doc.setTextColor(255, 255, 255);
   doc.setFont(fontName, "normal");
-  doc.setFontSize(11);
-  doc.text(tr(`Donem: ${date}`), 14, 30);
-  doc.text(tr(`Islem Sayisi: ${summary.sessionCount} hesap`), 14, 37);
+  doc.setFontSize(9.5);
+  const title = isMonthly ? tr(`Aylik Rapor · ${date}`) : tr(`Gun Sonu Raporu · ${date}`);
+  doc.text(title, marginX, 22);
+
+  const generatedAt = new Date().toLocaleString("tr-TR");
+  doc.setFontSize(8);
+  doc.setTextColor(230, 220, 200);
+  doc.text(tr(`Olusturulma: ${generatedAt}`), pageW - marginX, 22, { align: "right" });
+  doc.text(tr(`Islem Sayisi: ${summary.sessionCount} hesap`), pageW - marginX, 15, { align: "right" });
+
+  let currentY = 40;
+  doc.setTextColor(...rgb(palette.text));
+
+  const ensureSpace = (needed) => {
+    if (currentY + needed > 275) {
+      doc.addPage();
+      doc.setFillColor(...rgb(palette.pageBg));
+      doc.rect(0, 0, pageW, 297, "F");
+      currentY = 20;
+    }
+  };
+
+  const sectionTitle = (text) => {
+    ensureSpace(14);
+    doc.setFillColor(...rgb(palette.rowAlt));
+    doc.rect(marginX, currentY - 5, pageW - marginX * 2, 8, "F");
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...rgb(palette.primaryDk));
+    doc.text(tr(text), marginX + 3, currentY);
+    currentY += 10;
+    doc.setTextColor(...rgb(palette.text));
+  };
 
   // === ÜRÜN TABLOSU ===
+  sectionTitle("Urun Satislari");
   const tableData = summary.products.map((p, i) => [
     i + 1, tr(p.productName), tr(p.category), p.quantity, formatCurrency(p.totalRevenue)
   ]);
 
   doc.autoTable({
     head: [[tr("#"), tr("Urun"), tr("Kategori"), tr("Adet"), tr("Ciro")]],
-    body: tableData,
-    startY: 44,
-    theme: "striped",
-    headStyles: { fillColor: [232, 148, 26], textColor: 15, font: fontName },
-    styles: { font: fontName, fontSize: 9, cellWidth: 'wrap', overflow: 'linebreak' },
-    columnStyles: { 0: { halign: "center" }, 3: { halign: "center" }, 4: { halign: "right" } }
+    body: tableData.length ? tableData : [[tr("-"), tr("Kayit yok"), "", "", ""]],
+    startY: currentY,
+    theme: "grid",
+    margin: { left: marginX, right: marginX },
+    headStyles: { fillColor: rgb(palette.primary), textColor: rgb(palette.onPrimary), font: fontName, fontStyle: "bold", fontSize: 9.5 },
+    alternateRowStyles: { fillColor: rgb(palette.rowAlt) },
+    styles: { font: fontName, fontSize: 9, cellPadding: 3.2, cellWidth: 'wrap', overflow: 'linebreak', lineColor: rgb(palette.border), lineWidth: 0.1, textColor: rgb(palette.text) },
+    columnStyles: { 0: { halign: "center", cellWidth: 10 }, 3: { halign: "center" }, 4: { halign: "right", fontStyle: "bold" } }
   });
 
-  let currentY = doc.lastAutoTable.finalY + 12;
+  currentY = doc.lastAutoTable.finalY + 12;
 
   // === GİDER TABLOSU ===
   const expTableData = isMonthly
@@ -1513,85 +1724,84 @@ document.getElementById("btn-report-pdf")?.addEventListener("click", async () =>
     : Object.values(expensesData).map((e, i) => [i + 1, tr(e.type), tr(e.note || ""), formatCurrency(e.amount)]);
 
   if (expTableData.length > 0) {
-    const expHead = isMonthly 
-      ? [[tr("#"), tr("Gider Turu"), tr("Tutar")]] 
+    ensureSpace(20);
+    sectionTitle("Gider Detaylari");
+
+    const expHead = isMonthly
+      ? [[tr("#"), tr("Gider Turu"), tr("Tutar")]]
       : [[tr("#"), tr("Gider Turu"), tr("Not"), tr("Tutar")]];
-
-    if (currentY > 240) {
-      doc.addPage();
-      currentY = 20;
-    }
-
-    doc.setFontSize(12);
-    doc.setFont(fontName, "bold");
-    doc.text(tr("--- Gider Detaylari ---"), 14, currentY);
-    currentY += 8;
 
     doc.autoTable({
       head: expHead,
       body: expTableData,
       startY: currentY,
-      theme: "striped",
-      headStyles: { fillColor: [180, 60, 60], textColor: 255, font: fontName },
-      styles: { font: fontName, fontSize: 9, cellWidth: 'wrap', overflow: 'linebreak' },
-      columnStyles: isMonthly 
-        ? { 0: { halign: "center" }, 2: { halign: "right" } } 
-        : { 0: { halign: "center" }, 3: { halign: "right" } }
+      theme: "grid",
+      margin: { left: marginX, right: marginX },
+      headStyles: { fillColor: rgb(palette.danger), textColor: 255, font: fontName, fontStyle: "bold", fontSize: 9.5 },
+      alternateRowStyles: { fillColor: rgb(palette.rowAlt) },
+      styles: { font: fontName, fontSize: 9, cellPadding: 3.2, cellWidth: 'wrap', overflow: 'linebreak', lineColor: rgb(palette.border), lineWidth: 0.1, textColor: rgb(palette.text) },
+      columnStyles: isMonthly
+        ? { 0: { halign: "center", cellWidth: 10 }, 2: { halign: "right", fontStyle: "bold" } }
+        : { 0: { halign: "center", cellWidth: 10 }, 3: { halign: "right", fontStyle: "bold" } }
     });
 
-    currentY = doc.lastAutoTable.finalY + 10;
+    currentY = doc.lastAutoTable.finalY + 12;
   }
 
-  // === MALİ ÖZET ===
-  if (currentY > 235) {
-    doc.addPage();
-    currentY = 20;
-  }
+  // === MALİ ÖZET KARTI ===
+  ensureSpace(58);
+  sectionTitle("Mali Ozet");
 
-  doc.setFontSize(12);
+  const cardH = cashRemainingText ? 46 : 38;
+  doc.setDrawColor(...rgb(palette.border));
+  doc.setFillColor(...rgb(palette.rowAlt));
+  doc.roundedRect(marginX, currentY - 4, pageW - marginX * 2, cardH, 3, 3, "FD");
+
+  let lineY = currentY + 4;
+  const summaryLine = (label, value, opts = {}) => {
+    doc.setFont(fontName, opts.bold ? "bold" : "normal");
+    doc.setFontSize(opts.size || 10.5);
+    doc.setTextColor(...rgb(opts.muted ? palette.textMuted : palette.text));
+    doc.text(tr(label), marginX + 5, lineY);
+    doc.text(tr(value), pageW - marginX - 5, lineY, { align: "right" });
+    lineY += opts.gap || 7;
+  };
+
+  summaryLine("Ciro (Toplam Gelir)", formatCurrency(summary.grandTotal), { bold: true });
+  summaryLine("  Nakit", formatCurrency(summary.cashTotal || 0), { muted: true, size: 9.5 });
+  summaryLine("  Kredi Karti", formatCurrency(summary.cardTotal || 0), { muted: true, size: 9.5 });
+  summaryLine("Gider (Toplam)", `- ${formatCurrency(expTotal)}`, { bold: true });
+
+  // Net gelir — vurgulu pill
+  doc.setFillColor(...rgb(palette.primary));
+  doc.roundedRect(marginX + 4, lineY - 5.5, pageW - marginX * 2 - 8, 9, 2, 2, "F");
   doc.setFont(fontName, "bold");
-  doc.text(tr("--- Mali Ozet ---"), 14, currentY);
-  currentY += 8;
+  doc.setFontSize(11.5);
+  doc.setTextColor(...rgb(palette.onPrimary));
+  doc.text(tr("NET GELIR"), marginX + 9, lineY);
+  doc.text(tr(formatCurrency(net)), pageW - marginX - 9, lineY, { align: "right" });
+  lineY += 10;
 
-  doc.setFont(fontName, "normal");
-  doc.setFontSize(11);
-
-  const maliLines = [
-    tr(`CIRO (Toplam Gelir) : ${formatCurrency(summary.grandTotal)}`),
-    tr(`  - Nakit           : ${formatCurrency(summary.cashTotal || 0)}`),
-    tr(`  - Kredi Karti     : ${formatCurrency(summary.cardTotal || 0)}`),
-    tr(`GIDER (Toplam)      : ${formatCurrency(expTotal)}`),
-  ];
-
-  maliLines.forEach(line => {
-    if (currentY > 265) {
-      doc.addPage();
-      currentY = 20;
-    }
-    doc.text(line, 14, currentY);
-    currentY += 7;
-  });
-
-  // === NET GELİR (En kritik kısım) ===
-  if (currentY > 260) {
-    doc.addPage();
-    currentY = 20;
-  }
-
-  doc.setFont(fontName, "bold");
-  doc.setFontSize(12);
-  doc.text(tr(`NET GELIR           : ${formatCurrency(net)}`), 14, currentY);
-  currentY += 10;
-
-  // Kasa Nakit Özeti
   if (cashRemainingText) {
-    if (currentY > 265) {
-      doc.addPage();
-      currentY = 20;
-    }
     doc.setFont(fontName, "normal");
-    doc.setFontSize(10);
-    doc.text(tr(cashRemainingText), 14, currentY);
+    doc.setFontSize(9.5);
+    doc.setTextColor(...rgb(palette.textMuted));
+    doc.text(tr(cashRemainingText), marginX + 5, lineY);
+  }
+
+  // === ALT BİLGİ (FOOTER) — her sayfaya ===
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const pageH = doc.internal.pageSize.getHeight();
+    doc.setDrawColor(...rgb(palette.border));
+    doc.setLineWidth(0.2);
+    doc.line(marginX, pageH - 12, pageW - marginX, pageH - 12);
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...rgb(palette.textMuted));
+    doc.text(tr(`Han Kafem POS · ${palette.name} Tema`), marginX, pageH - 7);
+    doc.text(tr(`Sayfa ${i} / ${pageCount}`), pageW - marginX, pageH - 7, { align: "right" });
   }
 
   doc.save(`hankafem-rapor-${date}.pdf`);
@@ -1608,7 +1818,26 @@ document.getElementById("btn-expenses")?.addEventListener("click", () => {
   document.getElementById("expense-date-input").value = today;
   modal.classList.remove("hidden");
   loadExpenses(today);
+  loadExpenseTypesDatalist();
 });
+
+// YENİ (Madde 4): expenses_config.json + Firebase özel türleri birleştirip datalist'i doldur
+let knownExpenseTypes = [];
+async function loadExpenseTypesDatalist() {
+  const datalist = document.getElementById("expense-types");
+  if (!datalist) return;
+  try {
+    const [configTypes, customTypes] = await Promise.all([
+      fetchExpenseTypesConfig(),
+      getCustomExpenseTypes().catch(() => []),
+    ]);
+    const merged = [...new Set([...configTypes, ...customTypes])];
+    knownExpenseTypes = merged;
+    datalist.innerHTML = merged.map(t => `<option value="${t}"></option>`).join("");
+  } catch (err) {
+    console.warn("Gider türleri yüklenemedi:", err);
+  }
+}
 
 document.getElementById("expense-date-input")?.addEventListener("change", (e) => {
   loadExpenses(e.target.value);
@@ -1642,6 +1871,12 @@ document.getElementById("btn-add-expense")?.addEventListener("click", async () =
   try {
     const paymentMethod = document.getElementById("expense-payment-method")?.value || "cash";
     await addExpense(date, { type, amount: parseFloat(amount), note, paymentMethod });
+
+    // Yeni bir tür girildiyse (listede yoksa) Firebase'e kalıcı olarak yaz
+    if (type && !knownExpenseTypes.includes(type.trim())) {
+      addCustomExpenseType(type).then(() => loadExpenseTypesDatalist()).catch(() => {});
+    }
+
     document.getElementById("expense-type-input").value   = "";
     document.getElementById("expense-amount-input").value = "";
     document.getElementById("expense-note-input").value   = "";
@@ -1934,6 +2169,111 @@ document.getElementById("modal-staff")?.addEventListener("click", (e) => {
 });
 
 // ─────────────────────────────────────────────
+// YENİ (Madde 7): İŞLEM KAYITLARI (LOG) MODALI — sadece admin
+// ─────────────────────────────────────────────
+let currentLogEntries = {};
+
+document.getElementById("btn-logs")?.addEventListener("click", () => {
+  const modal = document.getElementById("modal-logs");
+  if (!modal) return;
+  const today = getBusinessDate();
+  document.getElementById("log-date-input").value = today;
+  modal.classList.remove("hidden");
+  loadLogs(today);
+});
+
+document.getElementById("modal-logs-close")?.addEventListener("click", () => {
+  document.getElementById("modal-logs")?.classList.add("hidden");
+});
+document.getElementById("modal-logs")?.addEventListener("click", (e) => {
+  if (e.target === e.currentTarget)
+    document.getElementById("modal-logs").classList.add("hidden");
+});
+
+document.getElementById("log-date-input")?.addEventListener("change", (e) => {
+  loadLogs(e.target.value);
+});
+document.getElementById("log-hour-filter")?.addEventListener("change", renderLogRows);
+document.getElementById("log-user-filter")?.addEventListener("change", renderLogRows);
+
+async function loadLogs(date) {
+  const bodyEl = document.getElementById("log-body");
+  const hourFilter = document.getElementById("log-hour-filter");
+  const userFilter  = document.getElementById("log-user-filter");
+  if (!bodyEl) return;
+
+  bodyEl.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-3)">Yükleniyor…</td></tr>`;
+
+  try {
+    currentLogEntries = await getLogsByDate(date);
+
+    // Saat filtresini logların içerdiği saatlere göre doldur
+    const hours = [...new Set(Object.values(currentLogEntries)
+      .map(l => new Date(l.timestamp).getHours()))].sort((a, b) => a - b);
+    if (hourFilter) {
+      hourFilter.innerHTML = `<option value="all">Tüm Saatler</option>` +
+        hours.map(h => `<option value="${h}">${String(h).padStart(2, "0")}:00 - ${String(h).padStart(2, "0")}:59</option>`).join("");
+    }
+
+    // Kullanıcı filtresini logların içerdiği kullanıcılara göre doldur
+    const users = [...new Set(Object.values(currentLogEntries).map(l => l.userName || "İsimsiz"))].sort();
+    if (userFilter) {
+      userFilter.innerHTML = `<option value="all">Tüm Kullanıcılar</option>` +
+        users.map(u => `<option value="${u}">${u}</option>`).join("");
+    }
+
+    renderLogRows();
+  } catch (err) {
+    bodyEl.innerHTML = `<tr><td colspan="6" style="color:#e74c3c">Hata: ${err.message}</td></tr>`;
+  }
+}
+
+function renderLogRows() {
+  const bodyEl      = document.getElementById("log-body");
+  const hourFilter  = document.getElementById("log-hour-filter")?.value || "all";
+  const userFilter  = document.getElementById("log-user-filter")?.value || "all";
+  if (!bodyEl) return;
+
+  let entries = Object.values(currentLogEntries)
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+  if (hourFilter !== "all") {
+    entries = entries.filter(l => new Date(l.timestamp).getHours() === parseInt(hourFilter));
+  }
+  if (userFilter !== "all") {
+    entries = entries.filter(l => (l.userName || "İsimsiz") === userFilter);
+  }
+
+  if (entries.length === 0) {
+    bodyEl.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-3)">Kayıt bulunamadı.</td></tr>`;
+    return;
+  }
+
+  bodyEl.innerHTML = "";
+  entries.forEach(l => {
+    const timeStr = new Date(l.timestamp).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const actionLabel = l.action === "eklendi"
+      ? `<span style="color:var(--green-text,#5fca8a)">＋ Eklendi</span>`
+      : `<span style="color:#e74c3c">－ Silindi</span>`;
+    const tr2 = document.createElement("tr");
+    tr2.innerHTML = `
+      <td>${timeStr}</td>
+      <td>
+        <div class="log-user">
+          <span>${l.userName || "İsimsiz"}</span>
+          <small>${l.userEmail || l.userUid || "-"}</small>
+        </div>
+      </td>
+      <td>${l.tableName || "-"}</td>
+      <td>${l.productName || "-"}</td>
+      <td>${actionLabel}</td>
+      <td style="text-align:center">${l.quantity ?? "-"}</td>
+    `;
+    bodyEl.appendChild(tr2);
+  });
+}
+
+// ─────────────────────────────────────────────
 // HEADER VE LOGOUT
 // ─────────────────────────────────────────────
 function updateHeader(user) {
@@ -2100,6 +2440,9 @@ function initMobileOrderPanel() {
   // TÜM handle alanına tıklama
   handle.addEventListener("click", (e) => {
     e.stopPropagation();
+    // YENİ: "Mutfağa Gönder" hızlı erişim butonu handle içine taşındığı için,
+    // ona tıklanınca sadece o buton çalışsın — Bottom Sheet yanlışlıkla açılıp/kapanmasın.
+    if (e.target.closest("#handle-kitchen-slot")) return;
     togglePanel();
   });
 

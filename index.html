@@ -162,12 +162,6 @@
           <button id="btn-notif-toggle" class="btn btn--ghost btn--sm notif-toggle-btn" title="Mutfak Bildirimleri">
             🔔 <span id="notif-badge" class="notif-badge hidden">0</span>
           </button>
-          <div id="notif-dropdown" class="notif-dropdown hidden">
-            <div class="notif-dropdown__header"><span>Mutfak Bildirimleri</span></div>
-            <div id="notif-panel-list" class="notif-panel-list">
-              <p class="notif-empty">Bekleyen bildirim yok.</p>
-            </div>
-          </div>
         </div>
         <span id="header-user" class="header-user"></span>
         <button id="btn-settings" class="btn btn--ghost btn--sm">⚙️</button>
@@ -674,5 +668,15 @@
     
    
   </script>
+  <!-- notif-dropdown: header'dan body sonuna taşındı — .app-header'daki
+       backdrop-filter, position:fixed alt elemanlar için yeni bir containing
+       block oluşturuyordu ve .header-right'taki overflow-x:auto ile birleşince
+       paneli görünmez şekilde kırpıyordu (bkz. style.css .notif-dropdown). -->
+  <div id="notif-dropdown" class="notif-dropdown hidden">
+    <div class="notif-dropdown__header"><span>Mutfak Bildirimleri</span></div>
+    <div id="notif-panel-list" class="notif-panel-list">
+      <p class="notif-empty">Bekleyen bildirim yok.</p>
+    </div>
+  </div>
 </body>
 </html>

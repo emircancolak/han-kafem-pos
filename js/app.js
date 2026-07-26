@@ -955,14 +955,21 @@ row.querySelector(".btn-plus").addEventListener("click", async (e) => {
   const btn = e.target;
   btn.disabled = true;
 
+  // Optimistic UI: Firebase yanıtını beklemeden sayacı anında güncelle,
+  // hata olursa aşağıda eski değere geri al. Gerçek değer zaten sipariş
+  // dinleyicisi renderOrderList'i tetiklediğinde üzerine yazılacak.
+  const qtyEl = document.getElementById(`qty-${product.id}`);
+  const prevQty = qtyEl ? (parseInt(qtyEl.textContent, 10) || 0) : 0;
+  if (qtyEl) qtyEl.textContent = prevQty + 1;
+
   try {
     const variation = row.querySelector(".inline-var-select")?.value || "";
     const note = (row.querySelector(".inline-note-input")?.value || "").trim();
 
-    // Doğrudan backend'e yeni miktarı gönder (optimistic update kaldırıldı)
     const currentQty = await getProductQtyInOrder(tableId, product.id, variation, note);
     await addOrderItem(tableId, product, currentQty + 1, { variation, note });
   } catch (err) {
+    if (qtyEl) qtyEl.textContent = prevQty;
     showToast("Hata: " + err.message, "error");
   } finally {
     btn.disabled = false;
@@ -974,6 +981,10 @@ row.querySelector(".btn-minus").addEventListener("click", async (e) => {
   const btn = e.target;
   btn.disabled = true;
 
+  const qtyEl = document.getElementById(`qty-${product.id}`);
+  const prevQty = qtyEl ? (parseInt(qtyEl.textContent, 10) || 0) : 0;
+  if (qtyEl) qtyEl.textContent = Math.max(0, prevQty - 1);
+
   try {
     const variation = row.querySelector(".inline-var-select")?.value || "";
     const note = (row.querySelector(".inline-note-input")?.value || "").trim();
@@ -981,6 +992,7 @@ row.querySelector(".btn-minus").addEventListener("click", async (e) => {
     const currentQty = await getProductQtyInOrder(tableId, product.id, variation, note);
     await addOrderItem(tableId, product, currentQty - 1, { variation, note });
   } catch (err) {
+    if (qtyEl) qtyEl.textContent = prevQty;
     showToast("Hata: " + err.message, "error");
   } finally {
     btn.disabled = false;
@@ -1053,13 +1065,12 @@ function renderOrderList(tableId, orders) {
   const isWaiter = AppState.currentUser?.role === "waiter";
   let total = 0;
 
-  // ÇÖZÜM BURADA: Listede ürün olsun ya da olmasın, önce menüdeki 
-  // tüm ürünlerin arayüzdeki sayısını "0" yapıyoruz. 
-  // Eğer siparişte varsa, aşağıdaki döngüde zaten kendi sayısıyla ezilecek.
-  AppState.menuItems.forEach(p => {
-    const qtyEl = document.getElementById(`qty-${p.id}`);
-    if (qtyEl) qtyEl.textContent = "0";
-  });
+  // Listede ürün olsun ya da olmasın, önce menüdeki tüm ürünlerin arayüzdeki
+  // sayısını "0" yapıyoruz. Eğer siparişte varsa, aşağıdaki döngüde zaten
+  // kendi sayısıyla ezilecek. AppState.menuItems'ı dönüp her ürün için ayrı
+  // ayrı getElementById çağırmak yerine (50 üründe 50 DOM sorgusu), doğrudan
+  // ekranda var olan .qty-display elemanlarını tek seferde sıfırlıyoruz.
+  document.querySelectorAll('.qty-display').forEach(el => el.textContent = "0");
 
   if (entries.length === 0) {
     listEl.innerHTML    = `<p class="order-empty">Henüz sipariş yok.</p>`;
@@ -1372,7 +1383,11 @@ function startNotificationListener() {
   });
 }
 
-document.getElementById("btn-notif-toggle")?.addEventListener("click", () => {
+document.getElementById("btn-notif-toggle")?.addEventListener("click", (e) => {
+  // Mobilde dokunma çoğunlukla butonun içindeki span/ikona denk geliyor;
+  // stopPropagation olmadan bu click document listener'a köpürüp aynı anda
+  // "dışarı tıklama" sayılarak paneli açıldığı milisaniyede kapatıyordu.
+  e.stopPropagation();
   const panel = document.getElementById("notif-dropdown");
   if (panel) panel.classList.toggle("hidden");
 });
@@ -1380,8 +1395,13 @@ document.getElementById("btn-notif-toggle")?.addEventListener("click", () => {
 document.addEventListener("click", (e) => {
   const panel  = document.getElementById("notif-dropdown");
   const toggle = document.getElementById("btn-notif-toggle");
-  if (panel && !panel.contains(e.target) && e.target !== toggle) {
-    panel.classList.add("hidden");
+
+  if (panel && !panel.classList.contains("hidden")) {
+    // Tıklanan yer panelin içi veya toggle butonunun kendisi/içi (span, ikon vb.)
+    // DEĞİLSE kapat — e.target yerine contains() ile kapsamlı kontrol.
+    if (!panel.contains(e.target) && (!toggle || !toggle.contains(e.target))) {
+      panel.classList.add("hidden");
+    }
   }
 });
 

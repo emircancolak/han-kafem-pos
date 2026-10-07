@@ -500,6 +500,18 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .table-card.empty    .table-card__price { color: var(--green-text); font-size: .82rem; font-weight: 600; }
 .table-card.occupied .table-card__price { color: var(--orange-text); font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+.table-card__timing {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  text-align: center;
+  font-size: .75rem;
+  line-height: 1.4;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.table-card__elapsed { color: var(--orange-text); font-weight: 600; }
+
 .table-card__view-btn {
   font-size: .75rem !important; padding: .3rem .7rem !important;
   margin-top: .2rem;
@@ -1646,3 +1658,46 @@ body.kitchen-mode .notif-dropdown__header {
     top: 66px !important;
   }
 }
+
+/* Bildirim düğmesi kaydırılan araç çubuğunun dışında, iki ekranda da erişilebilir. */
+.app-header { gap: .6rem; }
+.header-notifications {
+  flex: 0 0 44px;
+  width: 44px;
+  margin-left: .15rem;
+}
+.header-notifications .notif-toggle-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: .4rem;
+}
+
+@media (max-width: 1024px) {
+  .app-header { gap: .4rem; }
+  .app-header .header-left {
+    min-width: 0;
+    max-width: 35%;
+    flex: 0 1 auto;
+  }
+  .app-header .header-left .btn { flex-shrink: 0; }
+  .app-header .header-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-header .header-right {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .app-header .header-right > * { flex-shrink: 0; }
+  .app-header .header-user { display: none; }
+  .app-header .header-right::-webkit-scrollbar { display: none; }
+  .header-notifications { margin-left: 0; }
+}
+
+.notif-dropdown { max-height: calc(100dvh - 90px); }
+.notif-panel-list { max-height: min(340px, calc(100dvh - 160px)); }

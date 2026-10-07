@@ -39,9 +39,71 @@ let currentTableId           = null;
 let notifAudio = null;
 let lastNotifCount = 0;
 
+// Admin masa süreleri: tüm kartlar için tek zamanlayıcı, ek Firebase sorgusu yok.
+let tableElapsedTimer = null;
+const tableOpeningTimeFormatter = new Intl.DateTimeFormat("tr-TR", {
+  hour: "2-digit", minute: "2-digit"
+});
+
+function formatTableElapsed(openedAt, now = Date.now()) {
+  const minutes = Math.floor(Math.max(0, now - openedAt) / 60000);
+  if (minutes < 1) return "Yeni açıldı";
+  if (minutes < 60) return `${minutes} dk açık`;
+  return `${Math.floor(minutes / 60)} sa ${minutes % 60} dk açık`;
+}
+
+function refreshTableElapsedTimes() {
+  const now = Date.now();
+  document.querySelectorAll("#table-grid .table-card__elapsed[data-opened-at]").forEach(el => {
+    const text = formatTableElapsed(Number(el.dataset.openedAt), now);
+    // Kartları yeniden oluşturma; yalnızca değişen süre metnini güncelle.
+    if (el.textContent !== text) el.textContent = text;
+  });
+}
+
+function stopTableElapsedTimer() {
+  if (tableElapsedTimer !== null) {
+    clearInterval(tableElapsedTimer);
+    tableElapsedTimer = null;
+  }
+}
+
+function syncTableElapsedTimer() {
+  const active = AppState.currentUser?.role === "admin"
+    && !document.hidden
+    && !screens.dashboard.classList.contains("hidden")
+    && document.querySelector("#table-grid .table-card__elapsed[data-opened-at]");
+  if (!active) {
+    stopTableElapsedTimer();
+    return;
+  }
+  refreshTableElapsedTimes();
+  if (tableElapsedTimer === null) {
+    tableElapsedTimer = setInterval(refreshTableElapsedTimes, 60000);
+  }
+}
+
+document.addEventListener("visibilitychange", syncTableElapsedTimer);
+window.addEventListener("pagehide", stopTableElapsedTimer);
+window.addEventListener("pageshow", syncTableElapsedTimer);
+
+
+// Aynı düğmeyi taşı: bildirim sayacı ve click dinleyicisi çoğalmaz.
+function positionNotificationControl(screenName) {
+  const control = document.getElementById("notification-control");
+  const slot = document.getElementById(
+    screenName === "table" ? "table-notification-slot" : "dashboard-notification-slot"
+  );
+  if (control && slot && control.parentElement !== slot) slot.appendChild(control);
+  document.getElementById("notif-dropdown")?.classList.add("hidden");
+  document.getElementById("btn-notif-toggle")?.setAttribute("aria-expanded", "false");
+}
+
 function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.add("hidden"));
   screens[name].classList.remove("hidden");
+  positionNotificationControl(name);
+  syncTableElapsedTimer();
 }
 
 // ─────────────────────────────────────────────
@@ -557,6 +619,7 @@ function startDashboard() {
     grid.innerHTML = "";
     if (Object.keys(tables).length === 0) {
       grid.innerHTML = `<p class="no-tables">Henüz masa eklenmemiş.</p>`;
+      syncTableElapsedTimer();
       return;
     }
     const sorted = Object.entries(tables).sort((a, b) =>
@@ -566,6 +629,7 @@ function startDashboard() {
       const card = buildTableCard(tableId, table, isWaiter);
       grid.appendChild(card);
     });
+    syncTableElapsedTimer();
   });
 
   document.getElementById("admin-controls").style.display = isAdmin ? "flex" : "none";
@@ -626,6 +690,26 @@ function buildTableCard(tableId, table, isWaiter) {
       ? `<button class="btn-icon btn-delete-table" data-id="${tableId}" title="Masayı Sil">✕</button>`
       : ""}
   `;
+
+  if (isAdmin && occupied) {
+    const timing = document.createElement("div");
+    timing.className = "table-card__timing";
+    const openedAt = Number(table.openedAt);
+    if (Number.isFinite(openedAt) && openedAt > 0 && openedAt <= 8640000000000000) {
+      const opening = document.createElement("div");
+      opening.className = "table-card__opened-at";
+      opening.textContent = `Açılış ${tableOpeningTimeFormatter.format(openedAt)}`;
+      const elapsed = document.createElement("div");
+      elapsed.className = "table-card__elapsed";
+      elapsed.dataset.openedAt = String(openedAt);
+      elapsed.textContent = formatTableElapsed(openedAt);
+      timing.append(opening, elapsed);
+    } else {
+      // Eski kayıtta açılış saati yoksa süre uydurma.
+      timing.textContent = "Açılış bilgisi yok";
+    }
+    card.appendChild(timing);
+  }
 
   // Garson — İçerik Gör butonu
   card.querySelector(".table-card__view-btn")?.addEventListener("click", async (e) => {
@@ -1389,7 +1473,10 @@ document.getElementById("btn-notif-toggle")?.addEventListener("click", (e) => {
   // "dışarı tıklama" sayılarak paneli açıldığı milisaniyede kapatıyordu.
   e.stopPropagation();
   const panel = document.getElementById("notif-dropdown");
-  if (panel) panel.classList.toggle("hidden");
+  if (panel) {
+    const hidden = panel.classList.toggle("hidden");
+    e.currentTarget.setAttribute("aria-expanded", String(!hidden));
+  }
 });
 
 document.addEventListener("click", (e) => {
@@ -1401,6 +1488,7 @@ document.addEventListener("click", (e) => {
     // DEĞİLSE kapat — e.target yerine contains() ile kapsamlı kontrol.
     if (!panel.contains(e.target) && (!toggle || !toggle.contains(e.target))) {
       panel.classList.add("hidden");
+      toggle?.setAttribute("aria-expanded", "false");
     }
   }
 });

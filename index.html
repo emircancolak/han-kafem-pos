@@ -158,14 +158,16 @@
         <button id="btn-staff-management" class="btn btn--accent btn--sm" style="display:none" title="Personel">👥<span class="btn-label"> Personel</span></button>
         <!-- YENİ (Madde 7): İşlem Kayıtları (Log) butonu — sadece admin -->
         <button id="btn-logs" class="btn btn--accent btn--sm" style="display:none" title="Kayıtlar">🕒<span class="btn-label"> Kayıtlar</span></button>
-        <div class="notif-wrapper">
-          <button id="btn-notif-toggle" class="btn btn--ghost btn--sm notif-toggle-btn" title="Mutfak Bildirimleri">
-            🔔 <span id="notif-badge" class="notif-badge hidden">0</span>
-          </button>
-        </div>
         <span id="header-user" class="header-user"></span>
         <button id="btn-settings" class="btn btn--ghost btn--sm">⚙️</button>
         <button id="btn-logout"   class="btn btn--ghost btn--sm">Çıkış</button>
+      </div>
+      <div id="dashboard-notification-slot" class="header-notifications">
+        <div id="notification-control" class="notif-wrapper">
+          <button id="btn-notif-toggle" type="button" aria-label="Mutfak bildirimleri" aria-controls="notif-dropdown" aria-expanded="false" class="btn btn--ghost btn--sm notif-toggle-btn" title="Mutfak Bildirimleri">
+            🔔 <span id="notif-badge" class="notif-badge hidden">0</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -199,6 +201,7 @@
         <button id="btn-send-kitchen" class="btn btn--accent btn--sm">🍳 Mutfağa Gönder</button>
         <button id="btn-close-table"  class="btn btn--danger">Hesabı Al / Masayı Kapat</button>
       </div>
+      <div id="table-notification-slot" class="header-notifications"></div>
     </header>
 
     <div class="table-layout">

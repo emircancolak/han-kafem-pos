@@ -3,7 +3,7 @@
 // Cache-first for shell assets, network-first for data
 // ============================================================
 
-const CACHE_NAME   = "hankafem-v7"; // ← Her büyük güncellemede bunu artır (v5, v6, v7...)
+const CACHE_NAME   = "hankafem-v9-mobile-notifications"; // ← Her büyük güncellemede bunu artır (v5, v6, v7...)
 const SHELL_ASSETS = [
   "./",
   "./index.html",
